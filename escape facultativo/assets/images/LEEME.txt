@@ -1,0 +1,6 @@
+Aquí puedes guardar las imágenes del juego (formatos recomendados: .png, .jpg o .jpeg).
+
+Estructura de carpetas disponibles:
+- texturas/: Fotos o patrones para el piso de baldosas, paredes de ladrillo, madera de mesas, etc.
+- afiches/: Imágenes para los carteles y afiches que cuelgan de las paredes (ej. afiches del centro de estudiantes).
+- menu/: Fotos o ilustraciones para el fondo del menú principal o logos de la facultad (FAUD / UNMDP).

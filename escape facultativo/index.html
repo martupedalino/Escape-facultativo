@@ -1,0 +1,2487 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misión: Escape Facultativo</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Library & GLTFLoader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Script temprano para pantalla de bienvenida del profesor -->
+    <script>
+        const profFormats = [
+            'assets/images/profesor/profesor.png',
+            'assets/images/profesor/Retrato_gamer_con_iconos_pixelados-removebg-preview.png',
+            'assets/images/profesor/profesor.jpg',
+            'assets/images/profesor/profesor.jpeg',
+            'assets/images/profesor/profesor.webp'
+        ];
+        let profFormatIndex = 0;
+
+        function handleProfessorImgError(img) {
+            profFormatIndex++;
+            if (profFormatIndex < profFormats.length) {
+                img.src = profFormats[profFormatIndex];
+            } else {
+                img.style.display = 'none';
+                const fb = document.getElementById('prof-fallback');
+                if (fb) {
+                    fb.classList.remove('hidden');
+                    fb.classList.add('flex');
+                }
+            }
+        }
+
+        function goToMainMenu() {
+            try {
+                if (typeof window.initAudio === 'function') window.initAudio();
+                if (typeof playSound === 'function') playSound('pickup');
+            } catch (e) {}
+            const introScreen = document.getElementById('intro-screen');
+            const startScreen = document.getElementById('start-screen');
+            if (introScreen) {
+                introScreen.classList.add('hidden');
+                introScreen.classList.remove('flex');
+            }
+            if (startScreen) {
+                startScreen.classList.remove('hidden');
+                startScreen.classList.add('flex');
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+            background-color: #0b0f19;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            transition: filter 0.35s ease-in-out;
+        }
+
+        #canvas-container.anxiety-blur {
+            filter: blur(9px) contrast(1.1) brightness(0.85);
+        }
+
+        /* Retícula en pantalla */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            margin-top: -5px;
+            margin-left: -5px;
+            border: 2px solid rgba(255, 255, 255, 0.85);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
+            transition: transform 0.15s, border-color 0.15s, background-color 0.15s;
+        }
+
+        #crosshair.interactable {
+            border-color: #4ade80;
+            transform: scale(1.5);
+            background-color: rgba(74, 222, 128, 0.4);
+        }
+
+        /* Bordes titilantes en rojo cuando quedan 15s o menos */
+        @keyframes redPulse {
+            0% { box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: inset 0 0 80px rgba(239, 68, 68, 0.85); }
+            100% { box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.3); }
+        }
+
+        .time-warning {
+            animation: redPulse 0.8s infinite;
+        }
+
+        /* Estilos del cartel/globo de diálogo al hacer click al estudiante */
+        .speech-bubble {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border-radius: 12px;
+            padding: 10px 14px;
+            color: #1f2937;
+            font-weight: 700;
+            font-size: 13px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4);
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            display: none;
+            z-index: 25;
+            border: 2px solid #3b82f6;
+            transition: opacity 0.2s;
+        }
+
+        .speech-bubble:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border: 8px solid transparent;
+            border-top-color: #3b82f6;
+            border-bottom: 0;
+            margin-left: -8px;
+        }
+
+        #notification-banner {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateY(-120%);
+            opacity: 0;
+        }
+        #notification-banner.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Menú Principal con la imagen enviada de la FAUD UNMDP */
+        .faud-bg {
+            background-image: linear-gradient(to bottom, rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.88)), url('assets/images/menu/fondo_faud.png');
+            background-size: cover;
+            background-position: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-white select-none">
+
+    <!-- Contenedor 3D -->
+    <div id="canvas-container"></div>
+
+    <!-- Crosshair -->
+    <div id="crosshair"></div>
+
+    <!-- Overlay de advertencia de tiempo -->
+    <div id="warning-overlay" class="absolute inset-0 pointer-events-none z-10"></div>
+
+    <!-- HUD ESQUINA SUPERIOR IZQUIERDA: TEMPORIZADOR -->
+    <div class="absolute top-4 left-4 z-20 flex flex-col gap-2 pointer-events-none">
+        <div id="timer-card" class="bg-gray-900/85 backdrop-blur border-2 border-amber-500/80 rounded-2xl p-3 flex items-center gap-3 shadow-xl">
+            <i class="fa-solid fa-stopwatch text-2xl text-amber-400"></i>
+            <div>
+                <div class="text-[10px] text-gray-400 uppercase font-black tracking-widest">Tiempo Restante</div>
+                <div id="timer-display" class="text-2xl font-black font-mono text-amber-400">01:00</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTÓN DE PAUSA (ESQUINA SUPERIOR DERECHA) -->
+    <div class="absolute top-4 right-4 z-30">
+        <button id="btn-pause" class="bg-gray-900/85 hover:bg-gray-800 border-2 border-gray-700 hover:border-amber-500 text-white p-3 rounded-2xl shadow-xl backdrop-blur transition flex items-center justify-center cursor-pointer">
+            <i class="fa-solid fa-pause text-xl text-amber-400"></i>
+        </button>
+    </div>
+
+    <!-- NOTIFICACIÓN EN PANTALLA -->
+    <div id="notification-banner" class="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-indigo-600/90 backdrop-blur-md text-white font-bold px-6 py-2.5 rounded-full shadow-2xl border border-indigo-400/50 flex items-center gap-3 pointer-events-none">
+        <i id="notif-icon" class="fa-solid fa-circle-info text-lg"></i>
+        <span id="notif-text" class="text-sm">¡Busca al compañero con la exclamación y hazle click!</span>
+    </div>
+
+    <!-- HUD IZQUIERDA VERTICAL: 5 ESTUDIANTES RECEPTORES -->
+    <div class="absolute left-4 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2 pointer-events-none">
+        <div class="text-[10px] font-black tracking-wider text-gray-300 bg-gray-900/80 px-2.5 py-1 rounded-lg text-center backdrop-blur border border-gray-700/50 shadow">
+            ESTUDIANTES
+        </div>
+        <div id="students-tracker" class="flex flex-col gap-2">
+            <!-- 5 Cuadros de estudiantes -->
+        </div>
+    </div>
+
+    <!-- HUD DERECHA VERTICAL: MOCHILA / ALMACÉN (3 ESPACIOS) -->
+    <div class="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2 pointer-events-none">
+        <div class="text-[10px] font-black tracking-wider text-gray-300 bg-gray-900/80 px-2.5 py-1 rounded-lg text-center backdrop-blur border border-gray-700/50 shadow">
+            MOCHILA
+        </div>
+        <div id="inventory-slots" class="flex flex-col gap-2">
+            <div class="inv-slot w-16 h-16 bg-gray-900/80 border-2 border-gray-700 rounded-xl flex items-center justify-center shadow-md backdrop-blur">
+                <span class="text-gray-600 text-xs font-bold">Vacío</span>
+            </div>
+            <div class="inv-slot w-16 h-16 bg-gray-900/80 border-2 border-gray-700 rounded-xl flex items-center justify-center shadow-md backdrop-blur">
+                <span class="text-gray-600 text-xs font-bold">Vacío</span>
+            </div>
+            <div class="inv-slot w-16 h-16 bg-gray-900/80 border-2 border-gray-700 rounded-xl flex items-center justify-center shadow-md backdrop-blur">
+                <span class="text-gray-600 text-xs font-bold">Vacío</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD INFERIOR: RECORDATORIO CONTROLES -->
+    <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-gray-900/80 backdrop-blur px-5 py-2 rounded-full border border-gray-700/60 text-xs text-gray-300 flex gap-4 pointer-events-none shadow-xl">
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">WASD</kbd> Moverse</span>
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">Shift</kbd> Correr</span>
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">Espacio</kbd> Saltar</span>
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">↓ / C</kbd> Agacharse</span>
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">↑ + W</kbd> Empujar</span>
+        <span><kbd class="bg-gray-800 px-1.5 py-0.5 rounded text-white font-mono border border-gray-600">Click</kbd> Agarrar/Hablar</span>
+    </div>
+
+    <!-- CARTEL/BOCADILLO EN COMPAÑERO -->
+    <div id="speech-bubble" class="speech-bubble">
+        <div id="speech-title" class="font-bold text-gray-900 mb-1">¡Necesito estos útiles!</div>
+        <div id="speech-items" class="flex flex-wrap gap-1.5 mt-1"></div>
+    </div>
+
+    <!-- MENÚ DE PAUSA -->
+    <div id="pause-screen" class="absolute inset-0 bg-gray-950/80 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md w-full bg-gray-900 border-2 border-amber-500/80 rounded-2xl p-8 shadow-2xl flex flex-col gap-4">
+            <h2 class="text-3xl font-extrabold text-amber-400 mb-2 flex items-center justify-center gap-3">
+                <i class="fa-solid fa-pause"></i> JUEGO EN PAUSA
+            </h2>
+            <button id="btn-resume" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-black text-base py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-play"></i> REANUDAR JUEGO
+            </button>
+            <button id="btn-restart-pause" class="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 font-bold text-base py-3 rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-rotate-left"></i> REINICIAR JUEGO
+            </button>
+            <button id="btn-main-menu" class="w-full bg-rose-900/60 hover:bg-rose-800/80 text-rose-200 border border-rose-700/60 font-bold text-base py-3 rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-house"></i> VOLVER AL MENÚ PRINCIPAL
+            </button>
+        </div>
+    </div>
+
+    <!-- PANTALLA INTRO: ADVERTENCIA DEL PROFESOR (ANTES DEL MENÚ PRINCIPAL) -->
+    <div id="intro-screen" class="absolute inset-0 faud-bg z-50 flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-2xl w-full bg-gray-900/90 backdrop-blur-md border-2 border-indigo-500/80 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden flex flex-col items-center gap-6 animate-fade-in">
+            
+            <!-- Encabezado de la Facultad -->
+            <div>
+                <div class="inline-block bg-rose-600/90 text-white text-[11px] font-black tracking-widest uppercase px-3.5 py-1 rounded-full mb-2 border border-rose-400/40 shadow">
+                    <i class="fa-solid fa-triangle-exclamation mr-1 text-rose-200"></i> AULA MAGNA - FAUD UNMDP
+                </div>
+                <h2 class="text-3xl sm:text-4xl font-black text-indigo-300 tracking-tight">ADVERTENCIA DEL PROFESOR</h2>
+                <p class="text-xs sm:text-sm text-gray-300 font-semibold mt-1">Una voz resuena en los pasillos de la facultad...</p>
+            </div>
+
+            <!-- Contenedor Profesor y Globo de Diálogo -->
+            <div class="w-full flex flex-col sm:flex-row items-center justify-center gap-6 my-2">
+                
+                <!-- Imagen del Profesor -->
+                <div class="relative shrink-0 flex flex-col items-center">
+                    <div class="w-40 h-40 sm:w-48 sm:h-48 rounded-2xl border-4 border-indigo-500/80 shadow-2xl overflow-hidden bg-gray-950 flex items-center justify-center relative group">
+                        <!-- Foto subida por el usuario (profesor.png, .jpg o .jpeg) -->
+                        <img id="prof-img" src="assets/images/profesor/profesor.png" alt="Profesor" 
+                             class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+                             onerror="handleProfessorImgError(this)" />
+
+                        <!-- Fallback visual estilizado si todavía no subió la imagen -->
+                        <div id="prof-fallback" class="hidden w-full h-full flex-col items-center justify-center bg-gray-900/95 p-3 text-indigo-400">
+                            <i class="fa-solid fa-chalkboard-user text-6xl mb-2 text-indigo-300"></i>
+                            <span class="text-xs text-gray-200 font-black">Foto del Docente</span>
+                            <span class="text-[10px] text-indigo-300/80 font-mono mt-1 text-center">assets/images/profesor/profesor.png</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 bg-indigo-950 text-indigo-200 border border-indigo-400/50 text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-wider shadow">
+                        Profesor Titular
+                    </div>
+                </div>
+
+                <!-- Globo de Diálogo / Charla estilo cómic -->
+                <div class="relative bg-white text-gray-950 p-6 sm:p-7 rounded-3xl shadow-2xl border-4 border-indigo-600 flex-1 text-left flex flex-col justify-center">
+                    <!-- Flecha / Colita del globo para Desktop (apuntando a la izquierda) -->
+                    <div class="hidden sm:block absolute -left-4 top-1/2 -translate-y-1/2 w-0 h-0 border-t-[14px] border-t-transparent border-b-[14px] border-b-transparent border-r-[16px] border-r-indigo-600"></div>
+                    <div class="hidden sm:block absolute -left-[11px] top-1/2 -translate-y-1/2 w-0 h-0 border-t-[11px] border-t-transparent border-b-[11px] border-b-transparent border-r-[13px] border-r-white"></div>
+
+                    <!-- Flecha / Colita del globo para Mobile (apuntando hacia arriba) -->
+                    <div class="sm:hidden absolute -top-4 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[14px] border-l-transparent border-r-[14px] border-r-transparent border-b-[16px] border-b-indigo-600"></div>
+                    <div class="sm:hidden absolute -top-[11px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[11px] border-l-transparent border-r-[11px] border-r-transparent border-b-[13px] border-b-white"></div>
+
+                    <div class="flex items-center gap-1.5 text-indigo-800 text-xs font-black tracking-wider uppercase mb-1.5">
+                        <i class="fa-solid fa-quote-left text-sm text-indigo-600"></i> Mensaje del Titular
+                    </div>
+                    <p class="text-gray-950 text-lg sm:text-xl font-black leading-snug tracking-tight">
+                        “Hoy la facultad pesa más que la mochila. ¡Escapen mientras puedan!”
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- Botón / Cartel EMPEZAR que lleva al menú principal -->
+            <div class="w-full flex justify-center mt-2">
+                <button id="btn-enter-menu" onclick="goToMainMenu()" class="w-full sm:w-3/4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xl py-4 px-8 rounded-2xl shadow-xl transition-all transform hover:scale-[1.03] active:scale-[0.98] flex items-center justify-center gap-3 cursor-pointer border-2 border-indigo-400/60 group">
+                    <span>EMPEZAR</span>
+                    <i class="fa-solid fa-arrow-right text-indigo-200 group-hover:translate-x-1.5 transition-transform text-2xl"></i>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MENÚ PRINCIPAL INICIAL CON FONDO FAUD UNMDP -->
+    <div id="start-screen" class="absolute inset-0 faud-bg z-50 hidden flex-col items-center justify-center p-2 sm:p-4 overflow-y-auto text-center">
+        <div class="max-w-lg w-full bg-gray-900/95 backdrop-blur-md border-2 border-indigo-500/80 rounded-3xl p-4 sm:p-5 shadow-2xl relative flex flex-col gap-3 my-auto max-h-[96vh] overflow-y-auto">
+            <div>
+                <div class="inline-block bg-indigo-600 text-white text-[10px] font-black tracking-widest uppercase px-2.5 py-0.5 rounded-full mb-1">FAUD - UNMDP</div>
+                <h1 class="text-2xl sm:text-3xl font-black text-indigo-400 tracking-tight leading-none">MISIÓN: ESCAPE FACULTATIVO</h1>
+                <p class="text-gray-300 font-semibold text-xs mt-1">¿Preparado para escaparte de la facultad?</p>
+            </div>
+
+            <!-- VISTA: MENÚ PRINCIPAL (BOTONES) -->
+            <div id="main-menu-options" class="flex flex-col gap-3 py-1">
+                <button id="btn-menu-start" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black text-lg py-3.5 rounded-xl shadow-lg transition transform hover:scale-[1.02] flex items-center justify-center gap-3 cursor-pointer">
+                    <i class="fa-solid fa-play"></i> INICIO DEL JUEGO
+                </button>
+                <button id="btn-menu-settings" class="w-full bg-gray-800/90 hover:bg-gray-700 text-gray-200 border border-gray-600 font-bold text-base py-3 rounded-xl shadow transition flex items-center justify-center gap-3 cursor-pointer">
+                    <i class="fa-solid fa-sliders"></i> AJUSTES
+                </button>
+                <button id="btn-menu-controls" class="w-full bg-gray-800/90 hover:bg-gray-700 text-gray-200 border border-gray-600 font-bold text-base py-3 rounded-xl shadow transition flex items-center justify-center gap-3 cursor-pointer">
+                    <i class="fa-solid fa-gamepad"></i> CONTROLES
+                </button>
+            </div>
+
+            <!-- VISTA: SELECCIÓN DE PERSONAJE -->
+            <div id="view-character" class="hidden flex-col gap-2.5">
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-indigo-300">Selecciona tu Personaje</h3>
+                    <p class="text-[11px] text-gray-400">Cada estudiante tiene una característica y desventaja única en la partida:</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <!-- Tarjeta Personaje 1: Santi -->
+                    <button id="btn-select-p1" class="char-card border-2 border-amber-400 bg-indigo-950/80 ring-2 ring-amber-400/50 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-lg group">
+                        <div class="w-20 h-28 sm:w-24 sm:h-32 bg-gray-950 rounded-xl border border-amber-500/60 overflow-hidden relative shadow group-hover:border-amber-400 transition-all">
+                            <!-- Retrato Realista de Santi -->
+                            <img src="assets/images/menu/santi.png" alt="Santiago 'Santi' Gómez" class="w-full h-full object-cover" />
+                            <div class="absolute top-1 left-1 bg-amber-500/90 text-gray-950 font-black text-[8px] px-1.5 py-0.2 rounded shadow uppercase tracking-wider">
+                                FAUD - ARQ
+                            </div>
+                        </div>
+                        <span class="font-black text-sm sm:text-base text-amber-300 leading-tight">Santiago "Santi"</span>
+                        <span class="text-[9px] text-amber-200 font-black bg-amber-950/90 px-2 py-0.5 rounded-full border border-amber-500/60 uppercase tracking-wider">
+                            <i class="fa-solid fa-triangle-exclamation mr-1 text-amber-400"></i> Distraído
+                        </span>
+                        <div class="text-[10px] text-amber-100/90 bg-amber-950/40 p-1.5 rounded-lg border border-amber-500/30 text-center leading-snug">
+                            De los útiles que agarra, <b>¡siempre se le cae uno de la mochila al piso!</b>
+                        </div>
+                    </button>
+
+                    <!-- Tarjeta Personaje 2: Martu -->
+                    <button id="btn-select-p2" class="char-card border-2 border-gray-700 bg-gray-900/60 opacity-75 hover:opacity-100 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-md group">
+                        <div class="w-20 h-28 sm:w-24 sm:h-32 bg-gray-950 rounded-xl border border-rose-500/60 overflow-hidden relative shadow group-hover:border-rose-400 transition-all">
+                            <!-- Retrato Realista de Martu -->
+                            <img src="assets/images/menu/martu.png" alt="Martina 'Martu' Paz" class="w-full h-full object-cover" />
+                            <div class="absolute top-1 left-1 bg-rose-500/90 text-white font-black text-[8px] px-1.5 py-0.2 rounded shadow uppercase tracking-wider">
+                                FAUD - DI
+                            </div>
+                        </div>
+                        <span class="font-black text-sm sm:text-base text-rose-300 leading-tight">Martina "Martu"</span>
+                        <span class="text-[9px] text-rose-200 font-black bg-rose-950/90 px-2 py-0.5 rounded-full border border-rose-500/60 uppercase tracking-wider">
+                            <i class="fa-solid fa-bolt mr-1 text-rose-400"></i> Ansiosa
+                        </span>
+                        <div class="text-[10px] text-rose-100/90 bg-rose-950/40 p-1.5 rounded-lg border border-rose-500/30 text-center leading-snug">
+                            Al quedar poco tiempo, <b>¡la ansiedad hace que vea borroso por instantes!</b>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- ACLARACIÓN DESTACADA DEL PERSONAJE SELECCIONADO -->
+                <div id="char-trait-info" class="w-full bg-amber-950/70 border border-amber-500/80 rounded-xl p-2.5 text-left flex items-start gap-2.5 shadow-md backdrop-blur transition-all duration-300">
+                    <i id="char-trait-icon" class="fa-solid fa-triangle-exclamation text-xl text-amber-400 mt-0.5 shrink-0"></i>
+                    <div>
+                        <div id="char-trait-title" class="text-[11px] font-black text-amber-300 uppercase tracking-wider">Mecánica de Santi: Distraído</div>
+                        <div id="char-trait-desc" class="text-[11px] text-amber-100/90 font-medium leading-snug">
+                            Santi es muy colgado: cuando agarra varios objetos, ¡siempre se le cae uno de la mochila al suelo por distraído! Tendrás que escuchar el ruido de caída y darte vuelta para volver a buscarlo.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BOTONES DE ACCIÓN: SIEMPRE VISIBLES Y DESTACADOS -->
+                <div class="flex gap-2.5 pt-1">
+                    <button id="btn-back-from-char" class="w-1/3 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-xl border border-gray-600 text-xs sm:text-sm cursor-pointer transition">
+                        <i class="fa-solid fa-arrow-left mr-1"></i> Volver
+                    </button>
+                    <button id="btn-confirm-start" class="w-2/3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black py-2.5 px-3 rounded-xl shadow-xl text-sm sm:text-base cursor-pointer transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 border border-emerald-400/50 transition">
+                        <i class="fa-solid fa-play text-xs"></i>
+                        <span id="btn-confirm-text">¡JUGAR CON SANTI!</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- VISTA: AJUSTES -->
+            <div id="view-settings" class="hidden flex-col gap-4 text-left">
+                <h3 class="text-xl font-bold text-indigo-300 text-center">Ajustes de Sonido y Música</h3>
+                <div class="bg-gray-800/80 p-4 rounded-2xl border border-gray-700/80 flex flex-col gap-4">
+                    <div>
+                        <div class="flex justify-between text-xs font-bold mb-1">
+                            <span>Efectos de Sonido (Pasos, Objetos, Empuje)</span>
+                            <span id="sfx-vol-val">80%</span>
+                        </div>
+                        <input id="slider-sfx" type="range" min="0" max="100" value="80" class="w-full accent-indigo-500 cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs font-bold mb-1">
+                            <span>Música de Fondo / Ambiente</span>
+                            <span id="music-vol-val">50%</span>
+                        </div>
+                        <input id="slider-music" type="range" min="0" max="100" value="50" class="w-full accent-indigo-500 cursor-pointer">
+                    </div>
+                </div>
+                <button id="btn-back-from-settings" class="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-xl border border-gray-600 text-sm cursor-pointer">Volver al Menú</button>
+            </div>
+
+            <!-- VISTA: CONTROLES -->
+            <div id="view-controls" class="hidden flex-col gap-4 text-left">
+                <h3 class="text-xl font-bold text-indigo-300 text-center">Guía de Controles</h3>
+                <div class="bg-gray-800/80 p-4 rounded-2xl border border-gray-700/80 text-xs space-y-2.5 text-gray-200">
+                    <div class="flex justify-between items-center border-b border-gray-700/60 pb-1.5">
+                        <span class="font-bold text-amber-400">Moverse:</span>
+                        <span><kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">W / A / S / D</kbd> Camina por el taller</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-gray-700/60 pb-1.5">
+                        <span class="font-bold text-amber-400">Correr:</span>
+                        <span>Mantener <kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">Shift</kbd> mientras caminas</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-gray-700/60 pb-1.5">
+                        <span class="font-bold text-amber-400">Saltar:</span>
+                        <span><kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">Espacio</kbd></span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-gray-700/60 pb-1.5">
+                        <span class="font-bold text-amber-400">Agacharse:</span>
+                        <span><kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">Flecha Abajo</kbd> (Gatea bajo mesas)</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-gray-700/60 pb-1.5">
+                        <span class="font-bold text-amber-400">Agarrar / Hablar:</span>
+                        <span><kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">Click Izquierdo</kbd> apuntando de cerca</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-amber-400">Empujar Estructuras:</span>
+                        <span><kbd class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-mono">Flecha Arriba + W</kbd> cerca de mesas</span>
+                    </div>
+                </div>
+                <button id="btn-back-from-controls" class="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-xl border border-gray-600 text-sm cursor-pointer">Volver al Menú</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- WIN SCREEN -->
+    <div id="win-screen" class="absolute inset-0 bg-gray-950/90 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md bg-gray-900 border-2 border-amber-500/80 rounded-2xl p-8 shadow-2xl">
+            <div class="w-20 h-20 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 border border-amber-500/50">
+                <i class="fa-solid fa-bed"></i>
+            </div>
+            <h2 class="text-3xl font-extrabold text-amber-400 mb-2">¡FACULTAD ESCAPADA!</h2>
+            <p class="text-xl font-bold text-gray-100 mb-6">"Felicidades ya te podes ir a dormir"</p>
+            <button id="btn-restart-win" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-black text-lg py-3.5 rounded-xl shadow-lg transition transform hover:scale-[1.02]">
+                VOLVER A JUGAR
+            </button>
+        </div>
+    </div>
+
+    <!-- GAMEOVER SCREEN -->
+    <div id="gameover-screen" class="absolute inset-0 bg-gray-950/90 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md bg-gray-900 border-2 border-rose-500/80 rounded-2xl p-8 shadow-2xl">
+            <div class="w-20 h-20 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 border border-rose-500/50">
+                <i class="fa-solid fa-face-frown"></i>
+            </div>
+            <h2 class="text-3xl font-extrabold text-rose-500 mb-2">¡SE ACABÓ EL TIEMPO!</h2>
+            <p class="text-xl font-bold text-gray-200 mb-6">"perdiste, hoy no habra siesta"</p>
+            <button id="btn-restart-loss" class="w-full bg-rose-600 hover:bg-rose-500 text-white font-black text-lg py-3.5 rounded-xl shadow-lg transition transform hover:scale-[1.02]">
+                REINTENTAR NIVEL
+            </button>
+        </div>
+    </div>
+
+    <!-- GAME LOGIC SCRIPT -->
+    <script>
+        /* --- AUDIO SINTETIZADO CON VOLUMEN --- */
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+        let soundVolume = 0.8;
+        let musicVolume = 0.5;
+        let selectedCharacter = 1; // 1: Personaje 1, 2: Personaje 2
+
+        function playSound(type) {
+            if (!audioCtx && typeof window.initAudio === 'function') window.initAudio();
+            if (!audioCtx || soundVolume <= 0) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+                const vol = soundVolume * 0.3;
+
+                if (type === 'pickup') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(520, now);
+                    osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+                    gain.gain.setValueAtTime(vol, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+                    osc.start(now); osc.stop(now + 0.12);
+                } else if (type === 'deliver') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(350, now);
+                    osc.frequency.exponentialRampToValueAtTime(700, now + 0.18);
+                    gain.gain.setValueAtTime(vol, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.18);
+                    osc.start(now); osc.stop(now + 0.18);
+                } else if (type === 'complete') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(523.25, now);
+                    osc.frequency.setValueAtTime(659.25, now + 0.12);
+                    osc.frequency.setValueAtTime(783.99, now + 0.25);
+                    gain.gain.setValueAtTime(vol * 0.7, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+                    osc.start(now); osc.stop(now + 0.4);
+                } else if (type === 'push') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(90, now);
+                    osc.frequency.linearRampToValueAtTime(50, now + 0.15);
+                    gain.gain.setValueAtTime(vol * 0.4, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                    osc.start(now); osc.stop(now + 0.15);
+                } else if (type === 'drop') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(360, now);
+                    osc.frequency.exponentialRampToValueAtTime(120, now + 0.22);
+                    gain.gain.setValueAtTime(vol * 0.7, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.22);
+                    osc.start(now); osc.stop(now + 0.22);
+                } else if (type === 'confuse') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(440, now);
+                    osc.frequency.setValueAtTime(320, now + 0.1);
+                    gain.gain.setValueAtTime(vol * 0.6, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.22);
+                    osc.start(now); osc.stop(now + 0.22);
+                } else if (type === 'heartbeat') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(100, now);
+                    osc.frequency.exponentialRampToValueAtTime(45, now + 0.16);
+                    gain.gain.setValueAtTime(vol * 1.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.16);
+                    osc.start(now); osc.stop(now + 0.16);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        /* --- VARIABLES PRINCIPALES --- */
+        let scene, camera, renderer, raycaster;
+        let controlsEnabled = false;
+        let isPaused = false;
+
+        // Propiedades del Jugador
+        const player = {
+            height: 1.7,
+            crouchHeight: 0.85,
+            speed: 4.8,
+            runSpeed: 8.0,
+            jumpVelocity: 5.2,
+            velocity: new THREE.Vector3(),
+            isGrounded: true,
+            isCrouching: false,
+            inventory: [],
+            bodyMesh: null,
+            handsMesh: null,
+            grabProgress: 0,
+            handAnimFrame: 0
+        };
+
+        // Ítems y Personajes
+        const ITEMS_TYPES = [
+            { id: 'tijera', name: 'Tijeras', color: 0xe11d48, icon: 'fa-scissors' },
+            { id: 'regla', name: 'Regla', color: 0xeab308, icon: 'fa-ruler' },
+            { id: 'lapiz', name: 'Lápiz', color: 0x3b82f6, icon: 'fa-pencil' },
+            { id: 'telgopor', name: 'Telgopor', color: 0xf8fafc, icon: 'fa-cube' },
+            { id: 'carton', name: 'Cartón', color: 0x92400e, icon: 'fa-box' }
+        ];
+
+        const STUDENTS_DATA = [
+            { id: 0, name: 'Mateo', color: 0x10b981, avatar: '🧑' },
+            { id: 1, name: 'Cami', color: 0xec4899, avatar: '👩' },
+            { id: 2, name: 'Mica', color: 0x8b5cf6, avatar: '👧' },
+            { id: 3, name: 'Ale', color: 0x2563eb, avatar: '🧔' },
+            { id: 4, name: 'Pli', color: 0xf59e0b, avatar: '🧑‍🦱' }
+        ];
+
+        let targetStudents = [];
+        let wanderingStudents = [];
+        let currentStudentIndex = 0;
+        let worldItems = [];
+        let pushableObjects = [];
+
+        // Temporizador
+        let timeRemaining = 60;
+        let timerInterval = null;
+        let isTimerRunning = false;
+
+        // Teclas
+        const keys = {
+            w: false, a: false, s: false, d: false,
+            shift: false, space: false,
+            arrowDown: false, arrowUp: false
+        };
+
+        let prevTime = performance.now();
+
+        /* --- TEXTURAS PROCEDURALES Y CARGA DE ASSETS --- */
+        const textureLoader = new THREE.TextureLoader();
+
+        function safeLoadTexture(urlOrUrls, fallbackCanvasFn, repeatX = 1, repeatY = 1) {
+            const urls = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls];
+            const tex = new THREE.Texture();
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(repeatX, repeatY);
+
+            function tryIndex(idx) {
+                if (idx >= urls.length) {
+                    if (fallbackCanvasFn) {
+                        const fallbackTex = fallbackCanvasFn();
+                        if (fallbackTex) {
+                            tex.image = fallbackTex.image;
+                            tex.needsUpdate = true;
+                        }
+                    }
+                    return;
+                }
+                textureLoader.load(
+                    urls[idx],
+                    (loadedTex) => {
+                        tex.image = loadedTex.image;
+                        tex.wrapS = THREE.RepeatWrapping;
+                        tex.wrapT = THREE.RepeatWrapping;
+                        tex.repeat.set(repeatX, repeatY);
+                        tex.needsUpdate = true;
+                    },
+                    undefined,
+                    () => {
+                        tryIndex(idx + 1);
+                    }
+                );
+            }
+
+            tryIndex(0);
+            return tex;
+        }
+
+        function createTileTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#6b1d2f'; // Piso color bordó
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = '#3d0f19';
+            ctx.lineWidth = 4;
+            for (let i = 0; i <= 256; i += 32) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(256, i); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(12, 12);
+            return texture;
+        }
+
+        function createBrickWallTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#853a2b';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = '#522218';
+            ctx.lineWidth = 3;
+            for (let y = 0; y < 256; y += 16) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y); ctx.stroke();
+                const offset = (y / 16) % 2 === 0 ? 0 : 16;
+                for (let x = offset; x <= 256; x += 32) {
+                    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 16); ctx.stroke();
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(6, 3);
+            return texture;
+        }
+
+        function createPosterTexture(title, subtitle, bgColor) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 340;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, 256, 340);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(title, 128, 50);
+            ctx.font = '14px sans-serif';
+            ctx.fillText(subtitle, 128, 85);
+            ctx.fillStyle = 'rgba(255,255,255,0.2)';
+            ctx.beginPath(); ctx.arc(128, 180, 45, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText("CENTRO DE ESTUDIANTES", 128, 185);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Carga de Texturas de Assets
+        const floorTex = safeLoadTexture(['assets/images/texturas/piso de baldosa roja.png', 'assets/images/texturas/Piso de baldosas bordo.jpg', 'assets/images/texturas/piso.jpg'], createTileTexture, 10, 10);
+        const wallTex = safeLoadTexture(['assets/images/texturas/pared de ladrillo.png', 'assets/images/texturas/Pared de ladrillo.jpeg', 'assets/images/texturas/pared.jpg'], createBrickWallTexture, 6, 2);
+        const tableWoodTex = safeLoadTexture(['assets/images/texturas/Madera de mesa (parte superior).png', 'assets/images/texturas/Madera de mesa (parte superior).jpeg', 'assets/images/texturas/madera.jpg'], null, 1, 1);
+        const stoolWoodTex = safeLoadTexture(['assets/images/texturas/Madera de banqueta (parte superior).png', 'assets/images/texturas/Madera de banqueta (parte superior).jpeg'], null, 1, 1);
+        const metalLegsTex = safeLoadTexture('assets/images/texturas/Patas de mesas y sillas (fierros metal).png', null, 1, 3);
+
+        const posterTex1 = safeLoadTexture(['assets/images/afiches/afiche 1.png', 'assets/images/afiches/Afiche 1.png'], () => createPosterTexture("FRANJA MORADA", "VOTA LISTA 3", "#1e3a8a"));
+        const posterTex2 = safeLoadTexture(['assets/images/afiches/afiche 2.png', 'assets/images/afiches/Afiche 2.png'], () => createPosterTexture("LA FUENTE", "UNIDAD FACU", "#991b1b"));
+        const posterTex3 = safeLoadTexture(['assets/images/afiches/afiche 3.png', 'assets/images/afiches/Afiche 3.png'], () => createPosterTexture("FAUD UNMDP", "ARQUITECTURA Y DISEÑO", "#0284c7"));
+        const posterTex4 = safeLoadTexture(['assets/images/afiches/afiche 4.png', 'assets/images/afiches/Afiche 4.png'], () => createPosterTexture("ASAMBLEA", "UNIVERSIDAD PUBLICA", "#b91c1c"));
+
+        /* --- INICIALIZACIÓN 3D --- */
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+            scene.fog = new THREE.FogExp2(0x111827, 0.025);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, player.height, 12);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            raycaster = new THREE.Raycaster();
+
+            // Iluminación
+            const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+            scene.add(ambient);
+
+            const sun = new THREE.DirectionalLight(0xfffbeb, 0.85);
+            sun.position.set(10, 20, 10);
+            sun.castShadow = true;
+            scene.add(sun);
+
+            buildWorkshopEnvironment();
+            createPlayerBody();
+            createPlayerHandsViewModel();
+
+            window.addEventListener('resize', onWindowResize);
+            setupPointerLock();
+            setupKeyboardControls();
+            setupPauseEvents();
+
+            animate();
+        }
+
+        /* --- ENTORNO FACULTAD --- */
+        function buildWorkshopEnvironment() {
+            // Suelo de baldosa bordó
+            const floorGeo = new THREE.PlaneGeometry(30, 30);
+            const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.45 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Paredes
+            const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.75 });
+            const wallGeo = new THREE.PlaneGeometry(30, 6);
+
+            const wallN = new THREE.Mesh(wallGeo, wallMat); wallN.position.set(0, 3, -15); scene.add(wallN);
+            const wallS = new THREE.Mesh(wallGeo, wallMat); wallS.position.set(0, 3, 15); wallS.rotation.y = Math.PI; scene.add(wallS);
+            const wallE = new THREE.Mesh(wallGeo, wallMat); wallE.position.set(15, 3, 0); wallE.rotation.y = -Math.PI/2; scene.add(wallE);
+            const wallW = new THREE.Mesh(wallGeo, wallMat); wallW.position.set(-15, 3, 0); wallW.rotation.y = Math.PI/2; scene.add(wallW);
+
+            // Posters en Paredes (Afiches 1, 2, 3 y 4)
+            const posterGeo = new THREE.PlaneGeometry(2.2, 3.0);
+            
+            // Pared Norte (Afiche 1 y Afiche 2)
+            const p1 = new THREE.Mesh(posterGeo, new THREE.MeshBasicMaterial({ map: posterTex1 }));
+            p1.position.set(-6, 3, -14.88); scene.add(p1);
+
+            const p2 = new THREE.Mesh(posterGeo, new THREE.MeshBasicMaterial({ map: posterTex2 }));
+            p2.position.set(6, 3, -14.88); scene.add(p2);
+
+            // Pared Este (Afiche 3)
+            const p3 = new THREE.Mesh(posterGeo, new THREE.MeshBasicMaterial({ map: posterTex3 }));
+            p3.position.set(14.88, 3, 0); p3.rotation.y = -Math.PI / 2; scene.add(p3);
+
+            // Pared Oeste (Afiche 4)
+            const p4 = new THREE.Mesh(posterGeo, new THREE.MeshBasicMaterial({ map: posterTex4 }));
+            p4.position.set(-14.88, 3, 0); p4.rotation.y = Math.PI / 2; scene.add(p4);
+
+            spawnFurniture();
+        }
+
+        function spawnFurniture() {
+            pushableObjects.forEach(obj => scene.remove(obj.mesh));
+            pushableObjects = [];
+
+            const positions = [
+                { x: -6, z: -6 }, { x: 6, z: -6 },
+                { x: -6, z: 4 },  { x: 6, z: 4 },
+                { x: 0, z: -2 }
+            ];
+
+            const woodMat = new THREE.MeshStandardMaterial({ map: tableWoodTex, color: 0xffffff, roughness: 0.5 });
+            const metalMat = new THREE.MeshStandardMaterial({ map: metalLegsTex, color: 0xffffff, roughness: 0.4, metalness: 0.4 });
+            const stoolMat = new THREE.MeshStandardMaterial({ map: stoolWoodTex, color: 0xffffff, roughness: 0.5 });
+
+            positions.forEach(pos => {
+                // Mesa (70x70 aprox)
+                const tableGroup = new THREE.Group();
+                const topGeo = new THREE.BoxGeometry(2.2, 0.1, 2.2);
+                const top = new THREE.Mesh(topGeo, woodMat);
+                top.position.y = 1.0; top.castShadow = true; top.receiveShadow = true;
+                tableGroup.add(top);
+
+                const legGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.0);
+                [[-0.9, 0.5, -0.9], [0.9, 0.5, -0.9], [-0.9, 0.5, 0.9], [0.9, 0.5, 0.9]].forEach(lp => {
+                    const leg = new THREE.Mesh(legGeo, metalMat);
+                    leg.position.set(lp[0], lp[1], lp[2]); leg.castShadow = true;
+                    tableGroup.add(leg);
+                });
+
+                tableGroup.position.set(pos.x, 0, pos.z);
+                scene.add(tableGroup);
+
+                pushableObjects.push({ mesh: tableGroup, radius: 1.2, height: 1.05, type: 'table', mass: 2.0 });
+
+                // Banquetas alrededor
+                for (let i = 0; i < 2; i++) {
+                    const stoolGroup = new THREE.Group();
+                    const sTop = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.08), stoolMat);
+                    sTop.position.y = 0.5; sTop.castShadow = true;
+                    stoolGroup.add(sTop);
+
+                    const sLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5), metalMat);
+                    sLeg.position.y = 0.25; stoolGroup.add(sLeg);
+
+                    const ox = (Math.random() - 0.5) * 2.8;
+                    const oz = (Math.random() - 0.5) * 2.8;
+                    stoolGroup.position.set(pos.x + ox, 0, pos.z + oz);
+                    scene.add(stoolGroup);
+                    pushableObjects.push({ mesh: stoolGroup, radius: 0.4, height: 0.55, type: 'stool', mass: 0.8 });
+                }
+            });
+        }
+
+        /* --- CUERPO EN PRIMERA PERSONA (VISIBLE AL MIRAR HACIA ABAJO) --- */
+        function createPlayerBody() {
+            if (player.bodyMesh) scene.remove(player.bodyMesh);
+
+            const bodyGroup = new THREE.Group();
+
+            // Colores según personaje seleccionado
+            // P1: Remera Negra (0x18181b), Jeans Claros (0x60a5fa), Zapatillas Negras (0x09090b)
+            // P2: Buzo Negro (0x18181b), Pantalón Café (0x78573a), Zapatillas Bordó (0x881337)
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.7 });
+            const pantsColor = selectedCharacter === 1 ? 0x60a5fa : 0x78573a;
+            const shoeColor = selectedCharacter === 1 ? 0x09090b : 0x881337;
+            const soleColor = selectedCharacter === 1 ? 0xffffff : 0xfda4af;
+
+            const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.8 });
+            const shoeMat = new THREE.MeshStandardMaterial({ color: shoeColor, roughness: 0.6 });
+            const soleMat = new THREE.MeshStandardMaterial({ color: soleColor, roughness: 0.5 });
+            const beltMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.8 });
+
+            // 1. Torso y Pecho (Visible claramente al inclinar la vista hacia abajo)
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.44, 0.28), shirtMat);
+            torso.position.set(0, 1.25, -0.06);
+            torso.castShadow = true;
+            bodyGroup.add(torso);
+
+            // Cinturón / Cintura
+            const waist = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.12, 0.27), beltMat);
+            waist.position.set(0, 1.0, -0.06);
+            bodyGroup.add(waist);
+
+            // Cadera
+            const hips = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 0.26), pantsMat);
+            hips.position.set(0, 0.90, -0.06);
+            bodyGroup.add(hips);
+
+            // 2. Pierna y Pie Izquierdo (Pivote en la cadera para animación de paso)
+            const legLGroup = new THREE.Group();
+            legLGroup.position.set(-0.16, 0.90, -0.06);
+
+            const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.08, 0.82), pantsMat);
+            legL.position.set(0, -0.41, 0);
+            legL.castShadow = true;
+            legLGroup.add(legL);
+
+            // Zapatilla Izquierda con suela y detalles
+            const shoeLGroup = new THREE.Group();
+            shoeLGroup.position.set(0, -0.84, 0.06);
+            const shoeL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.34), shoeMat);
+            shoeL.castShadow = true;
+            const soleL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.04, 0.35), soleMat);
+            soleL.position.y = -0.06;
+            shoeLGroup.add(shoeL);
+            shoeLGroup.add(soleL);
+            legLGroup.add(shoeLGroup);
+
+            bodyGroup.add(legLGroup);
+
+            // 3. Pierna y Pie Derecho
+            const legRGroup = new THREE.Group();
+            legRGroup.position.set(0.16, 0.90, -0.06);
+
+            const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.08, 0.82), pantsMat);
+            legR.position.set(0, -0.41, 0);
+            legR.castShadow = true;
+            legRGroup.add(legR);
+
+            const shoeRGroup = new THREE.Group();
+            shoeRGroup.position.set(0, -0.84, 0.06);
+            const shoeR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.34), shoeMat);
+            shoeR.castShadow = true;
+            const soleR = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.04, 0.35), soleMat);
+            soleR.position.y = -0.06;
+            shoeRGroup.add(shoeR);
+            shoeRGroup.add(soleR);
+            legRGroup.add(shoeRGroup);
+
+            bodyGroup.add(legRGroup);
+
+            scene.add(bodyGroup);
+            player.bodyMesh = bodyGroup;
+        }
+
+        /* --- MANOS EN PRIMERA PERSONA CON VIEWMODEL Y GESTO DE AGARRE --- */
+        function createPlayerHandsViewModel() {
+            if (player.handsMesh) camera.remove(player.handsMesh);
+
+            const handsGroup = new THREE.Group();
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xfbcfe8, roughness: 0.5 });
+            const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.7 });
+
+            function createHand(isRight) {
+                const handGroup = new THREE.Group();
+
+                // Brazo y Manga
+                if (selectedCharacter === 1) {
+                    // Personaje 1: Manga corta negra + antebrazo de piel
+                    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.068, 0.18), sleeveMat);
+                    sleeve.rotation.x = Math.PI / 3;
+                    sleeve.position.set(0, 0.05, 0.1);
+                    handGroup.add(sleeve);
+
+                    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.05, 0.32), skinMat);
+                    forearm.rotation.x = Math.PI / 3;
+                    forearm.position.set(0, -0.08, -0.06);
+                    handGroup.add(forearm);
+                } else {
+                    // Personaje 2: Manga larga hoodie negra
+                    const longSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.062, 0.42), sleeveMat);
+                    longSleeve.rotation.x = Math.PI / 3;
+                    longSleeve.position.set(0, -0.04, 0);
+                    handGroup.add(longSleeve);
+                }
+
+                // Palma de la mano
+                const palm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.035, 0.09), skinMat);
+                palm.position.set(0, -0.19, -0.22);
+                palm.rotation.x = 0.2;
+                handGroup.add(palm);
+
+                // Pulgar
+                const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.025, 0.05), skinMat);
+                thumb.position.set(isRight ? -0.045 : 0.045, -0.18, -0.20);
+                thumb.rotation.y = isRight ? -0.4 : 0.4;
+                handGroup.add(thumb);
+
+                // Dedos articulados para el gesto de agarre
+                const fingersGroup = new THREE.Group();
+                fingersGroup.position.set(0, -0.19, -0.26);
+
+                const fingerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.03, 0.06), skinMat);
+                fingerMesh.position.set(0, 0, -0.03);
+                fingersGroup.add(fingerMesh);
+
+                handGroup.add(fingersGroup);
+                handGroup.userData.fingers = fingersGroup;
+
+                return handGroup;
+            }
+
+            // Brazo Izquierdo
+            const armL = createHand(false);
+            armL.position.set(-0.34, -0.22, -0.38);
+            handsGroup.add(armL);
+
+            // Brazo Derecho (Mano de interacción)
+            const armR = createHand(true);
+            armR.position.set(0.34, -0.22, -0.38);
+            handsGroup.add(armR);
+
+            camera.add(handsGroup);
+            player.handsMesh = handsGroup;
+        }
+
+        function triggerGrabGesture() {
+            player.grabProgress = 1.0;
+        }
+
+        function updatePlayerBodyAndHands(delta, time, isMoving, isPushing) {
+            // --- 1. ACTUALIZAR CUERPO EN EL SUELO (TORSO Y PIERNAS) ---
+            if (player.bodyMesh) {
+                player.bodyMesh.position.set(camera.position.x, 0, camera.position.z);
+                player.bodyMesh.rotation.y = camera.rotation.y;
+
+                const torso = player.bodyMesh.children[0];
+                const legL = player.bodyMesh.children[3]; // legLGroup
+                const legR = player.bodyMesh.children[4]; // legRGroup
+
+                if (player.isCrouching) {
+                    player.bodyMesh.scale.set(1, 0.65, 1);
+                    if (legL) legL.rotation.x = 0.35;
+                    if (legR) legR.rotation.x = -0.35;
+                } else {
+                    player.bodyMesh.scale.set(1, 1, 1);
+
+                    if (isMoving && player.isGrounded) {
+                        const stepSpeed = keys.shift ? 14 : 9;
+                        const legSwing = Math.sin(time * stepSpeed * 0.001) * (keys.shift ? 0.65 : 0.45);
+
+                        if (legL) legL.rotation.x = legSwing;
+                        if (legR) legR.rotation.x = -legSwing;
+                        if (torso) torso.position.y = 1.25 + Math.abs(Math.sin(time * stepSpeed * 0.001)) * 0.02;
+                    } else {
+                        if (legL) legL.rotation.x = 0;
+                        if (legR) legR.rotation.x = 0;
+                        if (torso) torso.position.y = 1.25;
+                    }
+                }
+            }
+
+            // --- 2. ACTUALIZAR MANOS EN PRIMERA PERSONA ---
+            if (!player.handsMesh) return;
+            const armL = player.handsMesh.children[0];
+            const armR = player.handsMesh.children[1];
+
+            const breathe = Math.sin(time * 0.002) * 0.008;
+
+            if (isPushing) {
+                const pushCycle = Math.sin(time * 0.012) * 0.12;
+                armL.position.set(-0.25, -0.15, -0.45 + pushCycle);
+                armR.position.set(0.25, -0.15, -0.45 + pushCycle);
+                armL.rotation.x = 0.4; armR.rotation.x = 0.4;
+            } else if (player.isCrouching) {
+                armL.position.set(-0.32, -0.28, -0.32);
+                armR.position.set(0.32, -0.28, -0.32);
+                armL.rotation.x = -0.15; armR.rotation.x = -0.15;
+            } else if (isMoving) {
+                const freq = keys.shift ? 13 : 8;
+                const amp = keys.shift ? 0.06 : 0.035;
+                const swing = Math.sin(time * 0.001 * freq) * amp;
+
+                armL.position.set(-0.34, -0.22 + breathe + swing, -0.38 + swing);
+                armR.position.set(0.34, -0.22 + breathe - swing, -0.38 - swing);
+                armL.rotation.x = swing * 2.2;
+                armR.rotation.x = -swing * 2.2;
+            } else {
+                armL.position.set(-0.34, -0.22 + breathe, -0.38);
+                armR.position.set(0.34, -0.22 + breathe, -0.38);
+                armL.rotation.x = breathe * 0.5;
+                armR.rotation.x = breathe * 0.5;
+            }
+
+            // --- 3. GESTO DE AGARRE (AL INTERACTUAR O RECOGER) ---
+            if (player.grabProgress > 0) {
+                player.grabProgress -= delta * 3.8;
+                const p = Math.max(0, player.grabProgress);
+                const grabCurve = Math.sin((1.0 - p) * Math.PI);
+
+                // La mano derecha se extiende hacia adelante y al centro
+                armR.position.x += -0.18 * grabCurve;
+                armR.position.y += 0.12 * grabCurve;
+                armR.position.z += -0.25 * grabCurve;
+                armR.rotation.x += 0.6 * grabCurve;
+                armR.rotation.z += -0.3 * grabCurve;
+
+                // Los dedos se curvan cerrando el puño
+                if (armR.userData && armR.userData.fingers) {
+                    armR.userData.fingers.rotation.x = 0.9 * grabCurve;
+                }
+            } else if (armR.userData && armR.userData.fingers) {
+                armR.userData.fingers.rotation.x = 0;
+            }
+        }
+
+        /* --- LÓGICA DE NIVEL --- */
+        function setupLevel1() {
+            targetStudents.forEach(s => scene.remove(s.mesh));
+            wanderingStudents.forEach(s => scene.remove(s.mesh));
+            worldItems.forEach(i => scene.remove(i.mesh));
+
+            characterMixers = [];
+            targetStudents = []; wanderingStudents = []; worldItems = [];
+            player.inventory = [];
+            santiPickupCounter = 0;
+            martuPickupCounter = 0;
+            clearAnxietyBlur();
+            updateInventoryHUD();
+
+            const fixedPositions = [
+                { x: -11, z: -11 }, { x: 11, z: -11 },
+                { x: -11, z: 11 },  { x: 11, z: 11 },
+                { x: 0, z: -12 }
+            ];
+
+            STUDENTS_DATA.forEach((data, index) => {
+                const pos = fixedPositions[index];
+                const studentMesh = createStudentMesh(data, true);
+                studentMesh.position.set(pos.x, 0, pos.z);
+                scene.add(studentMesh);
+
+                const reqCount = Math.floor(Math.random() * 3) + 2; // 2 a 4 cosas
+                const requiredItems = [];
+                for (let i = 0; i < reqCount; i++) {
+                    requiredItems.push(ITEMS_TYPES[Math.floor(Math.random() * ITEMS_TYPES.length)]);
+                }
+
+                // Icono exclamación solo en el primer estudiante disponible
+                const exclam = createExclamationSprite();
+                exclam.position.set(0, 2.2, 0);
+                if (index === 0) studentMesh.add(exclam);
+
+                targetStudents.push({
+                    id: index,
+                    data: data,
+                    mesh: studentMesh,
+                    requiredItems: requiredItems,
+                    deliveredItems: [],
+                    exclamationMesh: exclam,
+                    completed: false,
+                    started: false
+                });
+            });
+
+            // Estudiantes de estorbo (móviles con estilos y nombres diversos)
+            const wandererProfiles = [
+                { name: 'Lucía', color: 0x9333ea },    // pelo largo en capas, jeans oscuros, buzo violeta
+                { name: 'Nico', color: 0x0284c7 },     // quiff pompadour con barba prolija, campera azul
+                { name: 'Sofía', color: 0xd97706 },    // rulos con auriculares de estudio al cuello, buzo ocre
+                { name: 'Joaquín', color: 0x15803d }   // corte moderno, buzo verde bosque
+            ];
+            for (let i = 0; i < 4; i++) {
+                const wandererMesh = createStudentMesh(wandererProfiles[i], false);
+                wandererMesh.position.set((Math.random()-0.5)*20, 0, (Math.random()-0.5)*20);
+                scene.add(wandererMesh);
+                wanderingStudents.push({
+                    mesh: wandererMesh,
+                    name: wandererProfiles[i].name,
+                    target: new THREE.Vector3((Math.random()-0.5)*22, 0, (Math.random()-0.5)*22),
+                    speed: 1.6 + Math.random() * 0.7
+                });
+            }
+
+            spawnWorldItems();
+
+            currentStudentIndex = 0;
+            updateStudentsTrackerHUD();
+
+            stopTimer();
+            timeRemaining = 60;
+            updateTimerDisplay();
+        }
+
+        /* --- CUERPOS HUMANOS REALISTAS PROCEDURALES (ALTO DETALLE) --- */
+        let characterMixers = [];
+
+        function createHumanBody(shirtColor, name, originalName) {
+            const group = new THREE.Group();
+            const lowerName = (name || '').toLowerCase();
+
+            // 1. MATERIALES REALISTAS
+            const skinTone = lowerName.includes('cami') ? 0xf8d8c0 : (lowerName.includes('ale') ? 0xebb996 : 0xf1c6a7);
+            const skinMat = new THREE.MeshStandardMaterial({ color: skinTone, roughness: 0.54, metalness: 0.04 });
+            
+            // Variaciones de jeans / pantalones con texturas tonales
+            let pantsColor = 0x1e3a8a; // azul denim índigo
+            if (lowerName.includes('mateo')) pantsColor = 0x2563eb;
+            else if (lowerName.includes('cami')) pantsColor = 0x475569; // denim gris lavado
+            else if (lowerName.includes('mica') || lowerName.includes('lucia')) pantsColor = 0x18181b; // negro
+            else if (lowerName.includes('ale') || lowerName.includes('nico')) pantsColor = 0x5c4033; // cargo tabaco
+            else if (lowerName.includes('pli') || lowerName.includes('sofia')) pantsColor = 0x334155; // azul grafito
+            const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.82 });
+
+            // Zapatillas urbanas detalladas (estilo Vans / Converse)
+            const shoeBodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.65 });
+            const shoeSoleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
+            const shoeLaceMat = new THREE.MeshBasicMaterial({ color: 0xf1f5f9 });
+
+            // Ropa (Buzo / Campera) con acabado textil mate
+            const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.78 });
+
+            // Mochila facultativa con tela técnica
+            let backpackColor = 0x1e1b4b;
+            if (lowerName.includes('cami')) backpackColor = 0x9f1239;
+            else if (lowerName.includes('mica')) backpackColor = 0x4a044e;
+            else if (lowerName.includes('ale')) backpackColor = 0x14532d;
+            else if (lowerName.includes('pli')) backpackColor = 0x78350f;
+            const backpackMat = new THREE.MeshStandardMaterial({ color: backpackColor, roughness: 0.65 });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 });
+
+            const limbs = { eyelids: [] };
+
+            // 2. PIERNAS ANATÓMICAS CON RODILLAS ARTICULADAS (2 TRAMOS REALISTAS)
+            [-0.155, 0.155].forEach((legX, i) => {
+                const isLeft = (i === 0);
+                const hipGroup = new THREE.Group();
+                hipGroup.position.set(legX, 0.88, 0); // eje de rotación en cadera
+
+                // Muslo superior (conico anatómico)
+                const thighGeo = new THREE.CylinderGeometry(0.095, 0.082, 0.38, 14);
+                const thigh = new THREE.Mesh(thighGeo, pantsMat);
+                thigh.position.set(0, -0.19, 0);
+                thigh.castShadow = true;
+                hipGroup.add(thigh);
+
+                // Rodilla esférica para articulación suave
+                const kneeGroup = new THREE.Group();
+                kneeGroup.position.set(0, -0.38, 0); // eje de flexión de rodilla
+                const kneeCap = new THREE.Mesh(new THREE.SphereGeometry(0.082, 12, 10), pantsMat);
+                kneeCap.castShadow = true;
+                kneeGroup.add(kneeCap);
+
+                // Pantorrilla y canilla (afina hacia el tobillo)
+                const shinGeo = new THREE.CylinderGeometry(0.080, 0.062, 0.38, 14);
+                const shin = new THREE.Mesh(shinGeo, pantsMat);
+                shin.position.set(0, -0.19, 0);
+                shin.castShadow = true;
+                kneeGroup.add(shin);
+
+                // Zapatilla urbana de alta fidelidad
+                const shoeGroup = new THREE.Group();
+                shoeGroup.position.set(0, -0.38, 0.04);
+
+                // Suela de goma blanca con banda lateral
+                const sole = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.038, 0.29), shoeSoleMat);
+                sole.position.y = 0.019; sole.castShadow = true; shoeGroup.add(sole);
+
+                // Cuerpo de la zapatilla
+                const shoeBody = new THREE.Mesh(new THREE.BoxGeometry(0.148, 0.085, 0.27), shoeBodyMat);
+                shoeBody.position.set(0, 0.065, -0.005); shoeBody.castShadow = true; shoeGroup.add(shoeBody);
+
+                // Puntera redondeada de goma blanca
+                const toe = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.072, 0.075, 14, 1, false, 0, Math.PI), shoeSoleMat);
+                toe.rotation.x = -Math.PI / 2; toe.position.set(0, 0.05, 0.10); toe.castShadow = true; shoeGroup.add(toe);
+
+                // Cordones estilizados en el empeine
+                for (let lc = 0; lc < 3; lc++) {
+                    const lace = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.02), shoeLaceMat);
+                    lace.position.set(0, 0.11, 0.02 - lc * 0.04);
+                    shoeGroup.add(lace);
+                }
+
+                kneeGroup.add(shoeGroup);
+                hipGroup.add(kneeGroup);
+                group.add(hipGroup);
+
+                if (isLeft) { limbs.legL = hipGroup; limbs.kneeL = kneeGroup; }
+                else { limbs.legR = hipGroup; limbs.kneeR = kneeGroup; }
+            });
+
+            // Cintura / Cinturón
+            const belt = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.26), pantsMat);
+            belt.position.set(0, 0.94, 0); belt.castShadow = true; group.add(belt);
+            const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.015), metalMat);
+            buckle.position.set(0, 0.94, 0.135); group.add(buckle);
+
+            // 3. TORSO ANATÓMICO (PECHO ANCHO, CINTURA ESTILIZADA Y BUZO DETALLADO)
+            const torsoGroup = new THREE.Group();
+            torsoGroup.position.set(0, 1.15, 0);
+
+            // Pecho y espalda
+            const chest = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.34, 0.27), shirtMat);
+            chest.position.y = 0.10; chest.castShadow = true; torsoGroup.add(chest);
+
+            // Abdomen / parte baja del buzo
+            const abdomen = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.22, 0.24), shirtMat);
+            abdomen.position.y = -0.12; abdomen.castShadow = true; torsoGroup.add(abdomen);
+
+            // Cuello y capucha en la espalda
+            const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.06, 14), shirtMat);
+            collar.position.set(0, 0.27, 0); torsoGroup.add(collar);
+            const hood = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.12), shirtMat);
+            hood.position.set(0, 0.20, -0.14); torsoGroup.add(hood);
+
+            // Bolsillo canguro frontal
+            const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.04), shirtMat);
+            pocket.position.set(0, -0.10, 0.13); pocket.castShadow = true; torsoGroup.add(pocket);
+
+            // Mochila de diseño tridimensional con profundidad y compartimentos
+            const backpackGroup = new THREE.Group();
+            backpackGroup.position.set(0, 0.04, -0.21);
+            const bpMain = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.44, 0.16), backpackMat);
+            bpMain.castShadow = true; backpackGroup.add(bpMain);
+            // Bolsillo exterior con cierre
+            const bpFront = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.07), backpackMat);
+            bpFront.position.set(0, -0.09, -0.10); bpFront.castShadow = true; backpackGroup.add(bpFront);
+            // Botella de agua en el bolsillo de red lateral
+            const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.16, 8), new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 }));
+            bottle.position.set(0.20, 0.0, 0.0); bottle.castShadow = true; backpackGroup.add(bottle);
+            // Manija superior
+            const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 8, Math.PI), backpackMat);
+            handle.rotation.x = Math.PI; handle.position.set(0, 0.22, 0); backpackGroup.add(handle);
+            torsoGroup.add(backpackGroup);
+
+            // Correas de mochila que pasan por los hombros al pecho
+            [-0.14, 0.14].forEach(sx => {
+                const strap = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.32, 0.02), backpackMat);
+                strap.position.set(sx, 0.08, 0.138); torsoGroup.add(strap);
+            });
+
+            group.add(torsoGroup);
+            limbs.torso = torsoGroup;
+
+            // 4. BRAZOS ANATÓMICOS CON CODOS Y MANOS DETALLADAS (2 TRAMOS)
+            const armGeo = new THREE.CylinderGeometry(0.062, 0.054, 0.26, 12);
+            const forearmGeo = new THREE.CylinderGeometry(0.054, 0.044, 0.26, 12);
+
+            [-0.29, 0.29].forEach((armX, i) => {
+                const isLeft = (i === 0);
+                const shoulderGroup = new THREE.Group();
+                shoulderGroup.position.set(armX, 1.38, 0);
+
+                // Deltoides (hombro redondeado)
+                const deltoid = new THREE.Mesh(new THREE.SphereGeometry(0.072, 12, 10), shirtMat);
+                shoulderGroup.add(deltoid);
+
+                // Bíceps / Brazo superior
+                const bicep = new THREE.Mesh(armGeo, shirtMat);
+                bicep.position.set(0, -0.13, 0); bicep.castShadow = true; shoulderGroup.add(bicep);
+
+                // Codo articulado
+                const elbowGroup = new THREE.Group();
+                elbowGroup.position.set(0, -0.26, 0);
+                const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), shirtMat);
+                elbowGroup.add(elbowJoint);
+
+                // Antebrazo (piel o manga)
+                const forearm = new THREE.Mesh(forearmGeo, shirtMat);
+                forearm.position.set(0, -0.13, 0); forearm.castShadow = true; elbowGroup.add(forearm);
+
+                // Muñeca y Mano realista con dedos
+                const handGroup = new THREE.Group();
+                handGroup.position.set(0, -0.26, 0);
+                const palm = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.075, 0.035), skinMat);
+                palm.position.y = -0.035; palm.castShadow = true; handGroup.add(palm);
+                // Pulgar articulado
+                const thumb = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.010, 0.045, 6), skinMat);
+                thumb.position.set(isLeft ? 0.038 : -0.038, -0.025, 0.01);
+                thumb.rotation.z = isLeft ? -0.4 : 0.4; handGroup.add(thumb);
+
+                elbowGroup.add(handGroup);
+                shoulderGroup.add(elbowGroup);
+                group.add(shoulderGroup);
+
+                if (isLeft) { limbs.armL = shoulderGroup; limbs.elbowL = elbowGroup; }
+                else { limbs.armR = shoulderGroup; limbs.elbowR = elbowGroup; }
+            });
+
+            // 5. CUELLO Y CABEZA ANATÓMICA
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 1.66, 0);
+
+            // Cuello con musculatura
+            const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.082, 0.14, 12), skinMat);
+            neck.position.set(0, -0.15, 0); headGroup.add(neck);
+
+            // Cabeza modelada (cráneo + mentón)
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.185, 18, 18), skinMat);
+            head.castShadow = true; headGroup.add(head);
+
+            // Mandíbula y mentón definidos
+            const chin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.06, 0.09, 12), skinMat);
+            chin.position.set(0, -0.11, 0.06); chin.rotation.x = 0.2; headGroup.add(chin);
+
+            // Orejas anatómicas a los costados
+            [-0.178, 0.178].forEach(ex => {
+                const ear = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.06, 0.035), skinMat);
+                ear.position.set(ex, 0.0, -0.01); headGroup.add(ear);
+                if (lowerName.includes('cami') || lowerName.includes('mica')) {
+                    // Arete de aro plateado
+                    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.014, 0.003, 6, 12), metalMat);
+                    ring.position.set(ex * 1.05, -0.03, -0.01); headGroup.add(ring);
+                }
+            });
+
+            // OJOS REALISTAS CON ESCLERA, IRIS, PUPILA, BRILLO Y PÁRPADOS QUE PARPADEAN
+            const eyeWhiteGeo = new THREE.SphereGeometry(0.028, 10, 10);
+            const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+            
+            let irisColor = 0x451a03; // castaño profundo
+            if (lowerName.includes('mateo')) irisColor = 0x2e1065; // avellana / oscuro
+            else if (lowerName.includes('cami')) irisColor = 0x14532d; // verde oliva
+            const irisMat = new THREE.MeshBasicMaterial({ color: irisColor });
+            const pupilMat = new THREE.MeshBasicMaterial({ color: 0x020617 });
+            const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+            [-0.065, 0.065].forEach(x => {
+                // Esclera
+                const eyeW = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
+                eyeW.position.set(x, 0.025, 0.165); headGroup.add(eyeW);
+                // Iris con color
+                const iris = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 10), irisMat);
+                iris.position.set(x, 0.025, 0.180); headGroup.add(iris);
+                // Pupila negra
+                const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), pupilMat);
+                pupil.position.set(x, 0.025, 0.189); headGroup.add(pupil);
+                // Brillo especular fotográfico
+                const glint = new THREE.Mesh(new THREE.SphereGeometry(0.004, 6, 6), catchlightMat);
+                glint.position.set(x + 0.006, 0.032, 0.193); headGroup.add(glint);
+
+                // Párpado superior móvil (para pestañeo realista)
+                const eyelid = new THREE.Mesh(new THREE.SphereGeometry(0.030, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), skinMat);
+                eyelid.position.set(x, 0.032, 0.165);
+                eyelid.rotation.x = -0.15;
+                headGroup.add(eyelid);
+                limbs.eyelids.push(eyelid);
+            });
+
+            // Nariz con puente y aletas
+            const noseBridge = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.065, 0.03), skinMat);
+            noseBridge.position.set(0, 0.0, 0.18); headGroup.add(noseBridge);
+            const noseTip = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), skinMat);
+            noseTip.position.set(0, -0.025, 0.198); headGroup.add(noseTip);
+
+            // Labios con forma anatómica (arco de cupido)
+            const lipMat = new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.5 });
+            const upperLip = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.014, 0.015), lipMat);
+            upperLip.position.set(0, -0.068, 0.182); headGroup.add(upperLip);
+            const lowerLip = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.016, 0.018), lipMat);
+            lowerLip.position.set(0, -0.082, 0.180); headGroup.add(lowerLip);
+
+            // 6. PEINADOS Y ACCESORIOS DE ALTA FIDELIDAD
+            let hairColor = 0x1c1917; // castaño oscuro por defecto
+            if (lowerName.includes('cami')) hairColor = 0xb45309; // rubio/dorado
+            else if (lowerName.includes('ale') || lowerName.includes('nico')) hairColor = 0x3f2314; // castaño chocolate
+            else if (lowerName.includes('mateo')) hairColor = 0x26170d;
+            const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.85 });
+
+            // Cejas anatómicas
+            [-0.065, 0.065].forEach(x => {
+                const brow = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.012, 0.015), hairMat);
+                brow.position.set(x, 0.065, 0.178);
+                brow.rotation.z = (x > 0 ? -0.1 : 0.1);
+                headGroup.add(brow);
+            });
+
+            if (lowerName.includes('mateo')) {
+                // MATEO: Gorra moderna con visera curvada + pelo nuca y patillas
+                const nucaHair = new THREE.Mesh(new THREE.SphereGeometry(0.188, 14, 14, 0, Math.PI * 2, Math.PI / 2.2, Math.PI / 2), hairMat);
+                headGroup.add(nucaHair);
+
+                const capMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.6 }); // gorra ocre universitaria
+                const capCrown = new THREE.Mesh(new THREE.SphereGeometry(0.198, 18, 16, 0, Math.PI * 2, 0, Math.PI / 2), capMat);
+                capCrown.position.y = 0.025; headGroup.add(capCrown);
+                // Visera estructurada con curvatura
+                const capVisor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.022, 0.16), capMat);
+                capVisor.position.set(0, 0.035, 0.23); capVisor.rotation.x = 0.12; headGroup.add(capVisor);
+                const capBtn = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), capMat);
+                capBtn.position.set(0, 0.22, 0); headGroup.add(capBtn);
+
+            } else if (lowerName.includes('cami')) {
+                // CAMI: Cabello largo ondulado con mechas que caen al frente + vincha
+                const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.205, 18, 18), hairMat);
+                hairTop.position.set(0, 0.04, -0.02); headGroup.add(hairTop);
+                // Vincha
+                const headband = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.018, 8, 24), new THREE.MeshStandardMaterial({ color: 0xf43f5e }));
+                headband.rotation.x = Math.PI / 2.3; headband.position.set(0, 0.06, 0); headGroup.add(headband);
+                // Mechones que caen al pecho
+                [-0.13, 0.13].forEach(x => {
+                    const lock = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.022, 0.46, 10), hairMat);
+                    lock.position.set(x, -0.16, 0.09); headGroup.add(lock);
+                });
+                const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.52, 0.14), hairMat);
+                hairBack.position.set(0, -0.19, -0.12); headGroup.add(hairBack);
+
+            } else if (lowerName.includes('mica') || lowerName.includes('lucia')) {
+                // MICA / LUCÍA: Cabello largo en capas con volumen
+                const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.208, 18, 18), hairMat);
+                hairTop.position.set(0, 0.04, -0.02); headGroup.add(hairTop);
+                [-0.14, 0.14].forEach(x => {
+                    const lock = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.025, 0.50, 10), hairMat);
+                    lock.position.set(x, -0.18, 0.07); headGroup.add(lock);
+                });
+                const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.56, 0.15), hairMat);
+                hairBack.position.set(0, -0.21, -0.13); headGroup.add(hairBack);
+
+            } else if (lowerName.includes('ale') || lowerName.includes('nico')) {
+                // ALE / NICO: Peinado quiff con volumen + Barba prolija recortada
+                const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.205, 18, 18), hairMat);
+                hairTop.position.set(0, 0.06, -0.01); headGroup.add(hairTop);
+                const pomp = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.09, 0.15), hairMat);
+                pomp.position.set(0, 0.23, 0.06); headGroup.add(pomp);
+                // Barba prolija en la mandíbula
+                const beard = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.145, 0.12, 14, 1, false, 0, Math.PI), hairMat);
+                beard.position.set(0, -0.07, 0.05); headGroup.add(beard);
+
+            } else if (lowerName.includes('pli') || lowerName.includes('santi')) {
+                // PLI: Pelo rizado/afro con textura tridimensional + Auriculares de estudio al cuello
+                const afroCenter = new THREE.Mesh(new THREE.SphereGeometry(0.215, 18, 18), hairMat);
+                afroCenter.position.set(0, 0.06, -0.01); headGroup.add(afroCenter);
+                for (let r = 0; r < 12; r++) {
+                    const curl = new THREE.Mesh(new THREE.SphereGeometry(0.062, 8, 8), hairMat);
+                    const ang = (r / 12) * Math.PI * 2;
+                    curl.position.set(Math.cos(ang) * 0.165, 0.13 + (r % 2) * 0.04, Math.sin(ang) * 0.165);
+                    headGroup.add(curl);
+                }
+                // Auriculares profesionales de diseño al cuello
+                const phoneMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.35, metalness: 0.7 });
+                const phoneBand = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.018, 8, 20, Math.PI), phoneMat);
+                phoneBand.rotation.x = Math.PI / 2; phoneBand.position.set(0, -0.16, 0); headGroup.add(phoneBand);
+                [-0.135, 0.135].forEach(x => {
+                    const earpad = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.042, 12), new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.8 }));
+                    earpad.rotation.z = Math.PI / 2; earpad.position.set(x, -0.16, 0); headGroup.add(earpad);
+                });
+
+            } else {
+                // Cabello corto moderno con raya al costado
+                const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.202, 18, 18), hairMat);
+                hairTop.position.set(0, 0.04, -0.02); headGroup.add(hairTop);
+            }
+
+            group.add(headGroup);
+            limbs.head = headGroup;
+
+            group.limbs = limbs;
+            return group;
+        }
+
+        function createStudentMesh(studentDataOrColor, isFixed) {
+            const group = new THREE.Group();
+
+            const isObj = (typeof studentDataOrColor === 'object' && studentDataOrColor !== null);
+            const originalName = isObj && studentDataOrColor.name ? studentDataOrColor.name : 'Estudiante';
+            const studentName = originalName.toLowerCase();
+            const shirtColor = isObj && studentDataOrColor.color ? studentDataOrColor.color : (typeof studentDataOrColor === 'number' ? studentDataOrColor : 0x3b82f6);
+
+            // Generar cuerpo humano completo por código (Opción 1)
+            const humanBody = createHumanBody(shirtColor, studentName, originalName);
+            group.add(humanBody);
+            group.limbs = humanBody.limbs;
+
+            return group;
+        }
+
+        function createExclamationSprite() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(32, 32, 28, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ffffff'; ctx.font = 'bold 42px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('!', 32, 46);
+
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+            sprite.scale.set(0.8, 0.8, 1);
+            return sprite;
+        }
+
+        function spawnWorldItems() {
+            const totalNeeded = {};
+            targetStudents.forEach(s => {
+                s.requiredItems.forEach(item => { totalNeeded[item.id] = (totalNeeded[item.id] || 0) + 1; });
+            });
+
+            Object.keys(totalNeeded).forEach(itemId => {
+                const count = totalNeeded[itemId] + 2;
+                const itemDef = ITEMS_TYPES.find(i => i.id === itemId);
+
+                for (let c = 0; c < count; c++) {
+                    const itemMesh = createItemMesh(itemDef);
+                    let x = (Math.random() - 0.5) * 24;
+                    let z = (Math.random() - 0.5) * 24;
+                    let y = 0.1;
+
+                    // Colocar sobre mesas, debajo o en el piso
+                    if (Math.random() > 0.4 && pushableObjects.length > 0) {
+                        const table = pushableObjects.find(p => p.type === 'table');
+                        if (table) {
+                            x = table.mesh.position.x + (Math.random() - 0.5) * 1.2;
+                            z = table.mesh.position.z + (Math.random() - 0.5) * 1.2;
+                            y = table.height + 0.05;
+                        }
+                    }
+
+                    itemMesh.position.set(x, y, z);
+                    scene.add(itemMesh);
+                    worldItems.push({ mesh: itemMesh, data: itemDef });
+                }
+            });
+        }
+
+        function createItemMesh(itemDef) {
+            const group = new THREE.Group();
+            let geo;
+            if (itemDef.id === 'tijera') geo = new THREE.TorusGeometry(0.12, 0.03, 8, 16);
+            else if (itemDef.id === 'regla') geo = new THREE.BoxGeometry(0.5, 0.02, 0.1);
+            else if (itemDef.id === 'lapiz') geo = new THREE.CylinderGeometry(0.03, 0.03, 0.4);
+            else if (itemDef.id === 'telgopor') geo = new THREE.BoxGeometry(0.3, 0.2, 0.3);
+            else geo = new THREE.BoxGeometry(0.4, 0.05, 0.4);
+
+            const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: itemDef.color, roughness: 0.3 }));
+            mesh.castShadow = true; group.add(mesh);
+            return group;
+        }
+
+        /* --- RAYCASTING & INTERACCIÓN --- */
+        function performInteraction() {
+            if (isPaused) return;
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+            // Click a Estudiante
+            const studentMeshes = targetStudents.map(s => s.mesh);
+            const intersectsStudents = raycaster.intersectObjects(studentMeshes, true);
+
+            if (intersectsStudents.length > 0 && intersectsStudents[0].distance < 3.8) {
+                let hitMesh = intersectsStudents[0].object;
+                while (hitMesh.parent && hitMesh.parent !== scene) hitMesh = hitMesh.parent;
+                const studentObj = targetStudents.find(s => s.mesh === hitMesh);
+                if (studentObj) {
+                    interactWithStudent(studentObj);
+                    return;
+                }
+            }
+
+            // Click a Útiles
+            const itemMeshes = worldItems.map(i => i.mesh);
+            const intersectsItems = raycaster.intersectObjects(itemMeshes, true);
+
+            if (intersectsItems.length > 0 && intersectsItems[0].distance < 3.2) {
+                let hitMesh = intersectsItems[0].object;
+                while (hitMesh.parent && hitMesh.parent !== scene) hitMesh = hitMesh.parent;
+                const itemObj = worldItems.find(i => i.mesh === hitMesh);
+                if (itemObj) {
+                    pickupItem(itemObj);
+                    return;
+                }
+            }
+        }
+
+        let santiPickupCounter = 0;
+
+        function pickupItem(itemObj) {
+            triggerGrabGesture();
+            if (player.inventory.length >= 3) {
+                showNotification("¡Mochila llena! Entrega objetos primero.", "fa-triangle-exclamation");
+                return;
+            }
+
+            const itemToAdd = itemObj.data;
+            player.inventory.push(itemToAdd);
+
+            // Eliminar el objeto recogido del mundo
+            scene.remove(itemObj.mesh);
+            worldItems = worldItems.filter(i => i !== itemObj);
+            updateInventoryHUD();
+
+            playSound('pickup');
+            showNotification(`Agarraste: ${itemToAdd.name}`, itemToAdd.icon);
+
+            // RASGO PERSONAJE 1 (SANTI - DISTRAÍDO):
+            // De los objetos que agarra, ¡siempre uno se le cae de la mochila!
+            if (selectedCharacter === 1) {
+                santiPickupCounter++;
+                if (santiPickupCounter % 2 === 0 && player.inventory.length >= 2) {
+                    const dropIndex = Math.floor(Math.random() * (player.inventory.length - 1));
+                    const droppedItem = player.inventory.splice(dropIndex, 1)[0];
+
+                    const dropMesh = createItemMesh(droppedItem);
+                    const behindDir = new THREE.Vector3();
+                    camera.getWorldDirection(behindDir);
+                    behindDir.y = 0; behindDir.normalize();
+
+                    const dropX = Math.max(-13.5, Math.min(13.5, camera.position.x - behindDir.x * 1.5 + (Math.random() - 0.5) * 0.8));
+                    const dropZ = Math.max(-13.5, Math.min(13.5, camera.position.z - behindDir.z * 1.5 + (Math.random() - 0.5) * 0.8));
+                    dropMesh.position.set(dropX, 0.1, dropZ);
+                    scene.add(dropMesh);
+                    worldItems.push({ mesh: dropMesh, data: droppedItem });
+
+                    updateInventoryHUD();
+
+                    setTimeout(() => {
+                        playSound('drop');
+                        showNotification(`¡A Santi se le cayó ${droppedItem.name} de la mochila por distraído!`, "fa-triangle-exclamation");
+                    }, 280);
+                }
+            }
+        }
+
+        function interactWithStudent(studentObj) {
+            if (studentObj.id !== currentStudentIndex && !studentObj.completed) {
+                showNotification(`Primero atiende a ${targetStudents[currentStudentIndex].data.name}`, "fa-lock");
+                return;
+            }
+
+            // Si es la primera vez que se hace click en este compañero
+            if (!studentObj.started && !studentObj.completed) {
+                studentObj.started = true;
+                if (studentObj.exclamationMesh.parent) {
+                    studentObj.mesh.remove(studentObj.exclamationMesh);
+                }
+                startStudentTimer(); // Arranca el tiempo de 1 min exactamente aquí
+                showNotification(`¡${studentObj.data.name} necesita útiles!`, "fa-stopwatch");
+            }
+
+            // Entregar objetos desde inventario (copia limpia para iterar)
+            let deliveredAny = false;
+
+            for (let i = player.inventory.length - 1; i >= 0; i--) {
+                const invItem = player.inventory[i];
+                const neededCount = studentObj.requiredItems.filter(r => r.id === invItem.id).length;
+                const currentDeliveredCount = studentObj.deliveredItems.filter(r => r.id === invItem.id).length;
+
+                if (currentDeliveredCount < neededCount) {
+                    studentObj.deliveredItems.push(invItem);
+                    player.inventory.splice(i, 1);
+                    deliveredAny = true;
+                    playSound('deliver');
+                }
+            }
+
+            updateInventoryHUD();
+            updateStudentsTrackerHUD();
+
+            if (studentObj.deliveredItems.length === studentObj.requiredItems.length) {
+                studentObj.completed = true;
+                playSound('complete');
+                stopTimer(); // Se pausa el reloj hasta tocar al siguiente
+
+                currentStudentIndex++;
+                if (currentStudentIndex >= targetStudents.length) {
+                    setTimeout(showWinScreen, 800);
+                } else {
+                    // Poner signo de exclamación al siguiente compañero directo sin pausar el juego
+                    const nextStudent = targetStudents[currentStudentIndex];
+                    nextStudent.mesh.add(nextStudent.exclamationMesh);
+                    showNotification(`¡Siguiente compañero! Ve a buscar a ${nextStudent.data.name}`, "fa-user-check");
+                }
+            } else if (deliveredAny) {
+                showNotification("¡Bien! Entregaste parte de los útiles.", "fa-thumbs-up");
+            }
+
+            showSpeechBubbleForStudent(studentObj);
+        }
+
+        /* --- TEMPORIZADOR Y ALERTAS --- */
+        let anxietyBlurTimeout = null;
+
+        function triggerAnxietyBlur() {
+            const container = document.getElementById('canvas-container');
+            if (!container) return;
+            container.classList.add('anxiety-blur');
+            playSound('heartbeat');
+            setTimeout(() => playSound('heartbeat'), 200);
+
+            showNotification("¡Ansiedad! Martu empieza a ver borroso...", "fa-eye-slash");
+
+            if (anxietyBlurTimeout) clearTimeout(anxietyBlurTimeout);
+            anxietyBlurTimeout = setTimeout(() => {
+                if (container) container.classList.remove('anxiety-blur');
+                anxietyBlurTimeout = null;
+            }, 1350);
+        }
+
+        function clearAnxietyBlur() {
+            const container = document.getElementById('canvas-container');
+            if (container) container.classList.remove('anxiety-blur');
+            if (anxietyBlurTimeout) {
+                clearTimeout(anxietyBlurTimeout);
+                anxietyBlurTimeout = null;
+            }
+        }
+
+        function startStudentTimer() {
+            stopTimer();
+            timeRemaining = 60;
+            isTimerRunning = true;
+            updateTimerDisplay();
+
+            timerInterval = setInterval(() => {
+                if (isPaused) return;
+
+                timeRemaining--;
+                updateTimerDisplay();
+
+                // RASGO PERSONAJE 2 (MARTU - ANSIOSA):
+                // Cuando queda poco tiempo (20 segundos o menos), la ansiedad hace que vea borroso por instantes cortos
+                if (selectedCharacter === 2 && timeRemaining <= 20 && timeRemaining > 0) {
+                    if (timeRemaining === 20 || timeRemaining === 16 || timeRemaining === 12 || timeRemaining === 8 || timeRemaining === 5 || timeRemaining === 2) {
+                        triggerAnxietyBlur();
+                    }
+                }
+
+                if (timeRemaining <= 0) {
+                    stopTimer();
+                    showGameOverScreen();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+            isTimerRunning = false;
+            document.getElementById('warning-overlay').classList.remove('time-warning');
+            clearAnxietyBlur();
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(Math.max(0, timeRemaining) / 60);
+            const secs = Math.max(0, timeRemaining) % 60;
+            const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            const timerEl = document.getElementById('timer-display');
+            timerEl.innerText = formatted;
+
+            const warningOverlay = document.getElementById('warning-overlay');
+            if (timeRemaining <= 15 && isTimerRunning) {
+                timerEl.className = "text-2xl font-black font-mono text-rose-500 animate-bounce";
+                warningOverlay.classList.add('time-warning');
+            } else {
+                timerEl.className = "text-2xl font-black font-mono text-amber-400";
+                warningOverlay.classList.remove('time-warning');
+            }
+        }
+
+        /* --- HUD --- */
+        function updateInventoryHUD() {
+            const slotsContainer = document.getElementById('inventory-slots');
+            slotsContainer.innerHTML = '';
+
+            for (let i = 0; i < 3; i++) {
+                const item = player.inventory[i];
+                const slot = document.createElement('div');
+                slot.className = "inv-slot w-16 h-16 bg-gray-900/80 border-2 rounded-xl flex flex-col items-center justify-center relative shadow-md backdrop-blur transition-all duration-200";
+
+                if (item) {
+                    slot.classList.add('border-indigo-400', 'bg-indigo-950/40');
+                    slot.innerHTML = `
+                        <i class="fa-solid ${item.icon} text-xl text-indigo-300 mb-1"></i>
+                        <span class="text-[10px] font-bold text-gray-200 truncate max-w-[56px]">${item.name}</span>
+                    `;
+                } else {
+                    slot.classList.add('border-gray-700');
+                    slot.innerHTML = `<span class="text-gray-600 text-xs font-bold">Vacío</span>`;
+                }
+                slotsContainer.appendChild(slot);
+            }
+        }
+
+        function updateStudentsTrackerHUD() {
+            const trackerContainer = document.getElementById('students-tracker');
+            trackerContainer.innerHTML = '';
+
+            targetStudents.forEach((student, index) => {
+                const card = document.createElement('div');
+                const isCurrent = index === currentStudentIndex;
+                const isDone = student.completed;
+
+                let borderClass = 'border-gray-700 bg-gray-900/60 opacity-60';
+                if (isDone) borderClass = 'border-emerald-500 bg-emerald-950/40 opacity-100 line-through';
+                else if (isCurrent) borderClass = 'border-amber-400 bg-amber-950/60 opacity-100 ring-2 ring-amber-400/50 scale-105';
+
+                card.className = `w-14 h-14 rounded-xl border-2 ${borderClass} flex flex-col items-center justify-center relative shadow-lg transition-all duration-300`;
+
+                card.innerHTML = `
+                    <span class="text-xl">${student.data.avatar}</span>
+                    <span class="text-[10px] font-bold text-gray-200 leading-tight">${student.data.name}</span>
+                    ${isDone ? '<div class="absolute inset-0 bg-emerald-500/20 backdrop-blur-[1px] rounded-xl flex items-center justify-center text-emerald-400 text-2xl font-bold"><i class="fa-solid fa-check"></i></div>' : ''}
+                `;
+
+                trackerContainer.appendChild(card);
+            });
+        }
+
+        function showSpeechBubbleForStudent(student) {
+            const bubble = document.getElementById('speech-bubble');
+            const bubbleTitle = document.getElementById('speech-title');
+            const bubbleItems = document.getElementById('speech-items');
+
+            bubbleTitle.innerText = `${student.data.name} necesita:`;
+            bubbleItems.innerHTML = '';
+
+            const counts = {};
+            student.requiredItems.forEach(item => {
+                counts[item.id] = (counts[item.id] || 0) + 1;
+            });
+
+            Object.keys(counts).forEach(itemId => {
+                const reqItem = ITEMS_TYPES.find(i => i.id === itemId);
+                const totalReq = counts[itemId];
+                const deliveredCount = student.deliveredItems.filter(i => i.id === itemId).length;
+                const isDone = deliveredCount >= totalReq;
+
+                const badge = document.createElement('span');
+                badge.className = `px-2 py-0.5 text-xs rounded font-bold flex items-center gap-1 ${isDone ? 'bg-emerald-100 text-emerald-800 line-through' : 'bg-amber-100 text-amber-900'}`;
+                badge.innerHTML = `<i class="fa-solid ${reqItem.icon}"></i> ${reqItem.name} (${deliveredCount}/${totalReq})`;
+                bubbleItems.appendChild(badge);
+            });
+
+            bubble.style.display = 'block';
+
+            const tempV = new THREE.Vector3();
+            student.mesh.getWorldPosition(tempV);
+            tempV.y += 2.2;
+            tempV.project(camera);
+
+            const x = (tempV.x * .5 + .5) * window.innerWidth;
+            const y = (tempV.y * -.5 + .5) * window.innerHeight;
+
+            bubble.style.left = `${x}px`;
+            bubble.style.top = `${y}px`;
+
+            setTimeout(() => { bubble.style.display = 'none'; }, 4000);
+        }
+
+        function showNotification(msg, icon = 'fa-info-circle') {
+            const banner = document.getElementById('notification-banner');
+            document.getElementById('notif-text').innerText = msg;
+            document.getElementById('notif-icon').className = `fa-solid ${icon} text-lg`;
+
+            banner.classList.add('show');
+            setTimeout(() => { banner.classList.remove('show'); }, 3000);
+        }
+
+        /* --- MENÚ DE PAUSA Y EVENTOS --- */
+        function togglePause() {
+            const introScreen = document.getElementById('intro-screen');
+            if (introScreen && !introScreen.classList.contains('hidden')) return;
+            if (document.getElementById('start-screen').classList.contains('hidden') === false) return;
+            if (document.getElementById('win-screen').classList.contains('hidden') === false) return;
+            if (document.getElementById('gameover-screen').classList.contains('hidden') === false) return;
+
+            isPaused = !isPaused;
+
+            const pauseScreen = document.getElementById('pause-screen');
+            if (isPaused) {
+                clearAnxietyBlur();
+                pauseScreen.classList.remove('hidden');
+                pauseScreen.classList.add('flex');
+                document.exitPointerLock();
+            } else {
+                pauseScreen.classList.add('hidden');
+                pauseScreen.classList.remove('flex');
+                document.getElementById('canvas-container').requestPointerLock();
+            }
+        }
+
+        function setupPauseEvents() {
+            document.getElementById('btn-pause').addEventListener('click', (e) => {
+                e.stopPropagation();
+                togglePause();
+            });
+
+            document.getElementById('btn-resume').addEventListener('click', () => {
+                togglePause();
+            });
+
+            document.getElementById('btn-restart-pause').addEventListener('click', () => {
+                document.getElementById('pause-screen').classList.add('hidden');
+                document.getElementById('pause-screen').classList.remove('flex');
+                isPaused = false;
+                setupLevel1();
+                document.getElementById('canvas-container').requestPointerLock();
+            });
+
+            document.getElementById('btn-main-menu').addEventListener('click', () => {
+                document.getElementById('pause-screen').classList.add('hidden');
+                document.getElementById('pause-screen').classList.remove('flex');
+                isPaused = false;
+                stopTimer();
+                const startScreen = document.getElementById('start-screen');
+                startScreen.classList.remove('hidden');
+                startScreen.classList.add('flex');
+            });
+        }
+
+        /* --- FÍSICAS Y CONTROLES --- */
+        function setupPointerLock() {
+            const container = document.getElementById('canvas-container');
+
+            container.addEventListener('click', () => {
+                const introScreen = document.getElementById('intro-screen');
+                const startScreen = document.getElementById('start-screen');
+                const isIntroVisible = introScreen && !introScreen.classList.contains('hidden');
+                const isStartVisible = startScreen && !startScreen.classList.contains('hidden');
+                if (!controlsEnabled && !isPaused && !isIntroVisible && !isStartVisible) {
+                    container.requestPointerLock();
+                }
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                controlsEnabled = (document.pointerLockElement === container);
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!controlsEnabled || isPaused) return;
+                camera.rotation.y -= (e.movementX || 0) * 0.0025;
+                camera.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, camera.rotation.x - (e.movementY || 0) * 0.0025));
+                camera.rotation.order = 'YXZ';
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (e.button === 0 && controlsEnabled && !isPaused) {
+                    triggerGrabGesture();
+                    performInteraction();
+                }
+            });
+        }
+
+        function setupKeyboardControls() {
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyP' || e.code === 'Escape') {
+                    const introScreen = document.getElementById('intro-screen');
+                    const startScreen = document.getElementById('start-screen');
+                    const isIntroVisible = introScreen && !introScreen.classList.contains('hidden');
+                    const isStartVisible = startScreen && !startScreen.classList.contains('hidden');
+                    if (!isIntroVisible && !isStartVisible) {
+                        togglePause();
+                        return;
+                    }
+                }
+
+                switch (e.code) {
+                    case 'KeyW': keys.w = true; break;
+                    case 'KeyS': keys.s = true; break;
+                    case 'KeyA': keys.a = true; break;
+                    case 'KeyD': keys.d = true; break;
+                    case 'ShiftLeft': case 'ShiftRight': keys.shift = true; break;
+                    case 'Space': keys.space = true; break;
+                    case 'ArrowDown': case 'KeyC': keys.arrowDown = true; break;
+                    case 'ArrowUp': keys.arrowUp = true; break;
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                switch (e.code) {
+                    case 'KeyW': keys.w = false; break;
+                    case 'KeyS': keys.s = false; break;
+                    case 'KeyA': keys.a = false; break;
+                    case 'KeyD': keys.d = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': keys.shift = false; break;
+                    case 'Space': keys.space = false; break;
+                    case 'ArrowDown': case 'KeyC': keys.arrowDown = false; break;
+                    case 'ArrowUp': keys.arrowUp = false; break;
+                }
+            });
+        }
+
+        function updatePlayerMovement(delta, time) {
+            if (!controlsEnabled || isPaused) return;
+
+            player.isCrouching = keys.arrowDown;
+            const targetCamHeight = player.isCrouching ? player.crouchHeight : player.height;
+            camera.position.y += (targetCamHeight - camera.position.y) * 0.15;
+
+            const currentSpeed = keys.shift && !player.isCrouching ? player.runSpeed : player.speed;
+
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir); dir.y = 0; dir.normalize();
+            const sideDir = new THREE.Vector3(-dir.z, 0, dir.x);
+
+            const moveVector = new THREE.Vector3();
+            if (keys.w) moveVector.add(dir);
+            if (keys.s) moveVector.sub(dir);
+            if (keys.a) moveVector.sub(sideDir);
+            if (keys.d) moveVector.add(sideDir);
+            moveVector.normalize();
+
+            if (keys.space && player.isGrounded && !player.isCrouching) {
+                player.velocity.y = player.jumpVelocity;
+                player.isGrounded = false;
+            }
+
+            player.velocity.y -= 15.0 * delta;
+
+            const newPos = camera.position.clone();
+            newPos.x += moveVector.x * currentSpeed * delta;
+            newPos.z += moveVector.z * currentSpeed * delta;
+            newPos.y += player.velocity.y * delta;
+
+            if (newPos.y <= targetCamHeight) {
+                newPos.y = targetCamHeight; player.velocity.y = 0; player.isGrounded = true;
+            }
+
+            const bound = 14.0;
+            newPos.x = Math.max(-bound, Math.min(bound, newPos.x));
+            newPos.z = Math.max(-bound, Math.min(bound, newPos.z));
+
+            let isPushingObject = false;
+
+            // Colisiones y Empuje
+            pushableObjects.forEach(obj => {
+                const dx = newPos.x - obj.mesh.position.x;
+                const dz = newPos.z - obj.mesh.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                const minDist = 0.5 + obj.radius;
+
+                const isUnderTable = player.isCrouching && obj.type === 'table';
+
+                if (dist < minDist && !isUnderTable) {
+                    const pushDir = new THREE.Vector3(dx, 0, dz).normalize();
+
+                    // Empujar: Flecha Arriba + W
+                    if (keys.arrowUp && keys.w) {
+                        isPushingObject = true;
+                        const pushForce = (3.5 / obj.mass) * delta;
+                        obj.mesh.position.sub(pushDir.clone().multiplyScalar(pushForce));
+
+                        obj.mesh.position.x = Math.max(-13.5, Math.min(13.5, obj.mesh.position.x));
+                        obj.mesh.position.z = Math.max(-13.5, Math.min(13.5, obj.mesh.position.z));
+                        playSound('push');
+                    } else {
+                        const overlap = minDist - dist;
+                        newPos.x += pushDir.x * overlap;
+                        newPos.z += pushDir.z * overlap;
+                    }
+                }
+            });
+
+            // Colisión con estudiantes de estorbo
+            wanderingStudents.forEach(st => {
+                const dx = newPos.x - st.mesh.position.x;
+                const dz = newPos.z - st.mesh.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist < 0.9) {
+                    const pushBack = new THREE.Vector3(dx, 0, dz).normalize().multiplyScalar(0.9 - dist);
+                    newPos.x += pushBack.x; newPos.z += pushBack.z;
+                }
+            });
+
+            camera.position.copy(newPos);
+
+            const isMoving = (keys.w || keys.s || keys.a || keys.d) && player.isGrounded;
+
+            // Actualización de cuerpo (al mirar abajo) y manos con gesto de agarre
+            updatePlayerBodyAndHands(delta, time, isMoving, isPushingObject);
+        }
+
+        function updateWanderingStudents(delta) {
+            if (isPaused) return;
+
+            wanderingStudents.forEach(st => {
+                const pos = st.mesh.position;
+                const dir = new THREE.Vector3().subVectors(st.target, pos); dir.y = 0;
+
+                if (dir.length() < 0.8) {
+                    st.target.set((Math.random() - 0.5) * 22, 0, (Math.random() - 0.5) * 22);
+                } else {
+                    dir.normalize();
+                    pos.add(dir.multiplyScalar(st.speed * delta));
+                    st.mesh.lookAt(st.target.x, pos.y, st.target.z);
+
+                    // Animación de caminata realista biomecánica (2 tramos: caderas, rodillas y brazos)
+                    st.walkTime = (st.walkTime || 0) + delta * st.speed * 4.6;
+                    if (st.mesh.limbs) {
+                        const l = st.mesh.limbs;
+                        const wt = st.walkTime;
+                        const sinW = Math.sin(wt);
+
+                        // Caderas y muslos (balanceo de piernas)
+                        if (l.legL) l.legL.rotation.x = sinW * 0.48;
+                        if (l.legR) l.legR.rotation.x = -sinW * 0.48;
+
+                        // Flexión anatómica de rodilla (la rodilla sólo dobla hacia atrás durante el paso)
+                        if (l.kneeL) l.kneeL.rotation.x = Math.max(0, -sinW) * 0.65;
+                        if (l.kneeR) l.kneeR.rotation.x = Math.max(0, sinW) * 0.65;
+
+                        // Balanceo alternado de brazos y hombros
+                        if (l.armL) {
+                            l.armL.rotation.x = -sinW * 0.38;
+                            l.armL.rotation.z = -0.05;
+                        }
+                        if (l.armR) {
+                            l.armR.rotation.x = sinW * 0.38;
+                            l.armR.rotation.z = 0.05;
+                        }
+
+                        // Flexión natural de codos
+                        if (l.elbowL) l.elbowL.rotation.x = 0.18 + Math.max(0, sinW) * 0.22;
+                        if (l.elbowR) l.elbowR.rotation.x = 0.18 + Math.max(0, -sinW) * 0.22;
+
+                        // Vaivén vertical del torso por el impacto del paso (pelvic bob)
+                        if (l.torso) {
+                            l.torso.position.y = 1.15 + Math.abs(Math.sin(wt * 2)) * 0.035;
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateCrosshairRaycast() {
+            if (!controlsEnabled || isPaused) return;
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const crosshair = document.getElementById('crosshair');
+
+            const allInteractables = [
+                ...targetStudents.map(s => s.mesh),
+                ...worldItems.map(i => i.mesh)
+            ];
+
+            const intersects = raycaster.intersectObjects(allInteractables, true);
+            if (intersects.length > 0 && intersects[0].distance < 3.8) {
+                crosshair.classList.add('interactable');
+            } else {
+                crosshair.classList.remove('interactable');
+            }
+        }
+
+        /* --- LOOP --- */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = Math.min((time - prevTime) / 1000, 0.1);
+            prevTime = time;
+
+            if (!isPaused) {
+                updatePlayerMovement(delta, time);
+                updateWanderingStudents(delta);
+                updateCrosshairRaycast();
+
+                worldItems.forEach(item => { item.mesh.rotation.y += 1.0 * delta; });
+
+                // Animación de respiración, pestañeo y seguimiento de mirada en compañeros fijos
+                targetStudents.forEach((st, idx) => {
+                    if (st.mesh.limbs) {
+                        const l = st.mesh.limbs;
+
+                        // Respiración rítmica sutil en torso y hombros
+                        const breathe = Math.sin(time * 0.003 + idx * 1.5) * 0.016;
+                        if (l.torso) l.torso.position.y = 1.15 + breathe;
+                        if (l.head) l.head.position.y = 1.66 + breathe * 0.75;
+
+                        // Pestañeo natural periódico (cada ~3.6s por 130ms)
+                        const blinkVal = ((time + idx * 1200) % 3600 < 130) ? 0.38 : -0.15;
+                        if (l.eyelids) {
+                            l.eyelids.forEach(el => el.rotation.x = blinkVal);
+                        }
+
+                        // Head tracking interactivo: el compañero gira su cabeza para mirar al jugador si se acerca
+                        if (l.head && camera) {
+                            const dist = camera.position.distanceTo(st.mesh.position);
+                            if (dist < 6.5) {
+                                const dx = camera.position.x - st.mesh.position.x;
+                                const dz = camera.position.z - st.mesh.position.z;
+                                const angleToPlayer = Math.atan2(dx, dz) - st.mesh.rotation.y;
+                                const normAngle = THREE.MathUtils.euclideanModulo(angleToPlayer + Math.PI, Math.PI * 2) - Math.PI;
+                                const clampedYaw = Math.max(-0.85, Math.min(0.85, normAngle));
+                                l.head.rotation.y += (clampedYaw - l.head.rotation.y) * 0.08;
+
+                                const dy = (camera.position.y - (st.mesh.position.y + 1.66)) / Math.max(1.5, dist);
+                                const clampedPitch = Math.max(-0.35, Math.min(0.35, dy));
+                                l.head.rotation.x += (clampedPitch - l.head.rotation.x) * 0.08;
+                            } else {
+                                // Volver al frente suavemente si el jugador se aleja
+                                l.head.rotation.y += (0 - l.head.rotation.y) * 0.05;
+                                l.head.rotation.x += (0 - l.head.rotation.x) * 0.05;
+                            }
+                        }
+                    }
+                });
+
+                // Pestañeo de los estudiantes caminantes
+                wanderingStudents.forEach((st, idx) => {
+                    if (st.mesh.limbs && st.mesh.limbs.eyelids) {
+                        const blinkVal = ((time + idx * 900) % 3200 < 120) ? 0.38 : -0.15;
+                        st.mesh.limbs.eyelids.forEach(el => el.rotation.x = blinkVal);
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function showWinScreen() {
+            document.exitPointerLock();
+            stopTimer();
+            clearAnxietyBlur();
+            playSound('complete');
+            document.getElementById('win-screen').classList.remove('hidden');
+            document.getElementById('win-screen').classList.add('flex');
+        }
+
+        function showGameOverScreen() {
+            document.exitPointerLock();
+            stopTimer();
+            clearAnxietyBlur();
+            playSound('confuse');
+            document.getElementById('gameover-screen').classList.remove('hidden');
+            document.getElementById('gameover-screen').classList.add('flex');
+        }
+
+        window.onload = function () {
+            initEngine();
+
+            window.initAudio = () => {
+                if (!audioCtx) audioCtx = new AudioCtx();
+            };
+
+            // NAVEGACIÓN MENÚ PRINCIPAL
+            const menuOptions = document.getElementById('main-menu-options');
+            const viewChar = document.getElementById('view-character');
+            const viewSettings = document.getElementById('view-settings');
+            const viewControls = document.getElementById('view-controls');
+
+            function hideAllMenuViews() {
+                menuOptions.classList.add('hidden');
+                viewChar.classList.add('hidden'); viewChar.classList.remove('flex');
+                viewSettings.classList.add('hidden'); viewSettings.classList.remove('flex');
+                viewControls.classList.add('hidden'); viewControls.classList.remove('flex');
+            }
+
+            function showMenuView(viewEl) {
+                hideAllMenuViews();
+                viewEl.classList.remove('hidden');
+                viewEl.classList.add('flex');
+            }
+
+            document.getElementById('btn-menu-start').addEventListener('click', () => {
+                showMenuView(viewChar);
+                updateCharacterSelectionUI();
+            });
+
+            document.getElementById('btn-menu-settings').addEventListener('click', () => {
+                showMenuView(viewSettings);
+            });
+
+            document.getElementById('btn-menu-controls').addEventListener('click', () => {
+                showMenuView(viewControls);
+            });
+
+            document.getElementById('btn-back-from-char').addEventListener('click', () => {
+                hideAllMenuViews(); menuOptions.classList.remove('hidden');
+            });
+
+            document.getElementById('btn-back-from-settings').addEventListener('click', () => {
+                hideAllMenuViews(); menuOptions.classList.remove('hidden');
+            });
+
+            document.getElementById('btn-back-from-controls').addEventListener('click', () => {
+                hideAllMenuViews(); menuOptions.classList.remove('hidden');
+            });
+
+            // Seleccionar Personaje: Santi (1) o Martu (2)
+            const cardP1 = document.getElementById('btn-select-p1');
+            const cardP2 = document.getElementById('btn-select-p2');
+            const traitBanner = document.getElementById('char-trait-info');
+            const traitTitle = document.getElementById('char-trait-title');
+            const traitDesc = document.getElementById('char-trait-desc');
+            const traitIcon = document.getElementById('char-trait-icon');
+
+            function updateCharacterSelectionUI() {
+                const btnConfirmText = document.getElementById('btn-confirm-text');
+                if (selectedCharacter === 1) {
+                    cardP1.className = "char-card border-2 border-amber-400 bg-indigo-950/80 ring-2 ring-amber-400/50 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-lg scale-[1.01]";
+                    cardP2.className = "char-card border-2 border-gray-700 bg-gray-900/60 opacity-75 hover:opacity-100 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-md";
+
+                    traitBanner.className = "w-full bg-amber-950/70 border border-amber-500/80 rounded-xl p-2.5 text-left flex items-start gap-2.5 shadow-md backdrop-blur transition-all duration-300";
+                    traitIcon.className = "fa-solid fa-triangle-exclamation text-xl text-amber-400 mt-0.5 shrink-0";
+                    traitTitle.className = "text-[11px] font-black text-amber-300 uppercase tracking-wider";
+                    traitTitle.innerText = "Mecánica de Santi: Distraído";
+                    traitDesc.className = "text-[11px] text-amber-100/90 font-medium leading-snug";
+                    traitDesc.innerText = "Santi es muy colgado: cuando agarra varios objetos, ¡siempre se le cae uno de la mochila al suelo por distraído! Tendrás que escuchar el ruido de caída y darte vuelta para volver a buscarlo.";
+                    if (btnConfirmText) btnConfirmText.innerText = "¡JUGAR CON SANTI!";
+                } else {
+                    cardP2.className = "char-card border-2 border-rose-400 bg-indigo-950/80 ring-2 ring-rose-400/50 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-lg scale-[1.01]";
+                    cardP1.className = "char-card border-2 border-gray-700 bg-gray-900/60 opacity-75 hover:opacity-100 p-2 sm:p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition hover:scale-[1.01] cursor-pointer shadow-md";
+
+                    traitBanner.className = "w-full bg-rose-950/70 border border-rose-500/80 rounded-xl p-2.5 text-left flex items-start gap-2.5 shadow-md backdrop-blur transition-all duration-300";
+                    traitIcon.className = "fa-solid fa-eye-slash text-xl text-rose-400 mt-0.5 shrink-0";
+                    traitTitle.className = "text-[11px] font-black text-rose-300 uppercase tracking-wider";
+                    traitTitle.innerText = "Mecánica de Martu: Ansiosa";
+                    traitDesc.className = "text-[11px] text-rose-100/90 font-medium leading-snug";
+                    traitDesc.innerText = "Martu sufre de ansiedad con el reloj: cuando queden 20 segundos o menos para entregar los útiles, el pánico y la ansiedad harán que empiece a ver borroso por instantes cortos.";
+                    if (btnConfirmText) btnConfirmText.innerText = "¡JUGAR CON MARTU!";
+                }
+            }
+
+            cardP1.addEventListener('click', () => {
+                selectedCharacter = 1;
+                updateCharacterSelectionUI();
+            });
+
+            cardP2.addEventListener('click', () => {
+                selectedCharacter = 2;
+                updateCharacterSelectionUI();
+            });
+
+            // Doble clic en tarjeta inicia directamente
+            cardP1.addEventListener('dblclick', () => {
+                document.getElementById('btn-confirm-start').click();
+            });
+            cardP2.addEventListener('dblclick', () => {
+                document.getElementById('btn-confirm-start').click();
+            });
+
+            // Sliders de Ajustes de Audio
+            const sliderSfx = document.getElementById('slider-sfx');
+            const sliderMusic = document.getElementById('slider-music');
+
+            sliderSfx.addEventListener('input', (e) => {
+                soundVolume = e.target.value / 100;
+                document.getElementById('sfx-vol-val').innerText = `${e.target.value}%`;
+            });
+
+            sliderMusic.addEventListener('input', (e) => {
+                musicVolume = e.target.value / 100;
+                document.getElementById('music-vol-val').innerText = `${e.target.value}%`;
+            });
+
+            // Transición desde Pantalla del Profesor al Menú Principal
+            const btnEnterMenu = document.getElementById('btn-enter-menu');
+            if (btnEnterMenu) {
+                btnEnterMenu.addEventListener('click', goToMainMenu);
+            }
+
+            // Iniciar Partida
+            document.getElementById('btn-confirm-start').addEventListener('click', () => {
+                initAudio();
+                createPlayerBody();
+                createPlayerHandsViewModel();
+                document.getElementById('start-screen').classList.add('hidden');
+                setupLevel1();
+                document.getElementById('canvas-container').requestPointerLock();
+            });
+
+            document.getElementById('btn-restart-loss').addEventListener('click', () => {
+                document.getElementById('gameover-screen').classList.add('hidden');
+                document.getElementById('gameover-screen').classList.remove('flex');
+                setupLevel1();
+                document.getElementById('canvas-container').requestPointerLock();
+            });
+
+            document.getElementById('btn-restart-win').addEventListener('click', () => {
+                document.getElementById('win-screen').classList.add('hidden');
+                document.getElementById('win-screen').classList.remove('flex');
+                setupLevel1();
+                document.getElementById('canvas-container').requestPointerLock();
+            });
+        };
+    </script>
+</body>
+</html>

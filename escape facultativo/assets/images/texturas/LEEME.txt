@@ -1,0 +1,4 @@
+Coloca aquí imágenes repetibles para superficies 3D:
+- piso.jpg (para el suelo del aula/taller)
+- pared.jpg (para las paredes de ladrillo o concreto)
+- madera.jpg (para las mesas y banquetas)

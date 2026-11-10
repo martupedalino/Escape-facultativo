@@ -1,0 +1,3 @@
+Coloca aquí la imagen de fondo para la pantalla de inicio del juego:
+- fondo_faud.jpg (o fondo_faud.png)
+(foto de la fachada o entrada de la facultad FAUD UNMDP)

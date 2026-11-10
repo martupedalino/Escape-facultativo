@@ -1,0 +1,4 @@
+Coloca aquí las imágenes de los carteles colgados en las paredes:
+- afiche1.jpg (o afiche1.png)
+- afiche2.jpg (o afiche2.png)
+(pueden ser fotos de carteles reales de la facultad, eventos, agrupaciones estudiantiles, etc.)
